@@ -10,7 +10,9 @@ Add a marker such as `#focus` to an event title or description in Google Calenda
 - Show a **custom reminder** before the event. `{event}` inserts the event title.
 - **Snooze ordinary notifications from selected apps** until the scheduled event end or for a fixed duration measured from rule activation, capped at the event end.
 
-Rules can match all visible synced calendars or a selected subset. Matching is case-insensitive and uses whole markers: `#focus` does not match `#focused`. Recurring occurrences and calendar edits are read through Android's Calendar Provider. All-day, cancelled and declined events are excluded.
+Rules can match all visible synced calendars or a selected subset. Matching is case-insensitive and uses whole markers: `#focus` does not match `#focused`. Recurring occurrences and calendar edits are read through Android's Calendar Provider. All-day, cancelled and declined events are excluded from automation.
+
+The **Calendar** tab shows a browsable month and a daily agenda of events from all visible synced calendars, including events without rules, all-day events and declined invitations. It works while automation is paused. Select a day to see each matching rule's scheduled, active, disabled or paused state, sound mode, app snoozing and quiet window; tap a rule to edit it. All-day and declined events remain visible but do not activate rules. Cancelled events are omitted. Missing action permissions are shown alongside the rule, and an active rule does not guarantee that every optional action succeeded.
 
 Overlapping sound rules use Silent over Vibrate. Notification hiding uses the latest active deadline for each selected app. Manual ringer changes pause sound automation through the connected set of overlapping sound events. Other Do Not Disturb rules are preserved.
 
@@ -26,7 +28,7 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Relea
 
 The locally built prototype is at `artifacts/calendar-quiet-preview.apk`: the optimized release build signed with the development debug key for device testing. It is not a production-signed release. The unsigned optimized output remains at `app/build/outputs/apk/release/app-release-unsigned.apk`.
 
-Verified on 2026-10-10: all 11 core tests passed; debug and optimized release APK builds succeeded; Android lint reported zero errors (remaining warnings are dependency-update and Kotlin/style suggestions). The optimized preview is approximately 2.17 MiB, and its APK signature and 16 KiB ZIP alignment were verified. No physical-device or battery measurements have been performed.
+Verified on 2026-10-13: all 16 core tests passed, including calendar date-boundary and time-zone coverage; debug and optimized release APK builds succeeded; Android lint reported zero errors (remaining warnings are dependency-update and Kotlin/style suggestions). The optimized preview is approximately 2.21 MiB, and its APK signature and 16 KiB ZIP alignment were verified. No physical-device or battery measurements have been performed.
 
 ## First use
 

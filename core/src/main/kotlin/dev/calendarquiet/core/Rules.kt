@@ -38,6 +38,7 @@ data class CalendarEvent(
     val start: Long,
     val end: Long,
     val allDay: Boolean = false,
+    val declined: Boolean = false,
 )
 
 data class Session(val rule: Rule, val event: CalendarEvent) {
@@ -58,8 +59,8 @@ data class Snapshot(
 )
 
 object RuleEngine {
-    fun matches(rule: Rule, event: CalendarEvent): Boolean {
-        if (!rule.enabled || event.allDay || event.end <= event.start) return false
+    fun matches(rule: Rule, event: CalendarEvent, includeDisabled: Boolean = false): Boolean {
+        if ((!rule.enabled && !includeDisabled) || event.allDay || event.declined || event.end <= event.start) return false
         if (rule.calendarIds.isNotEmpty() && event.calendarId !in rule.calendarIds) return false
         // Whole markers only: #focus must not match #focused or #focus-work.
         val expression = Regex("(?<![\\p{L}\\p{N}_#-])${Regex.escape(rule.marker)}(?![\\p{L}\\p{N}_-])", RegexOption.IGNORE_CASE)

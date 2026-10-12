@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -91,9 +92,12 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         },
         bottomBar = {
             if (editing == null) NavigationBar {
-                listOf("Rules", "Schedule", "Setup").forEachIndexed { index, name ->
+                listOf("Rules", "Schedule", "Calendar", "Setup").forEachIndexed { index, name ->
                     NavigationBarItem(selected = page == index, onClick = { page = index },
-                        icon = { Text(listOf("≡", "◷", "⚙")[index], style = MaterialTheme.typography.titleLarge) }, label = { Text(name) })
+                        icon = { Icon(painterResource(listOf(android.R.drawable.ic_menu_agenda,
+                            android.R.drawable.ic_menu_recent_history, android.R.drawable.ic_menu_month,
+                            android.R.drawable.ic_menu_preferences)[index]), contentDescription = name,
+                            modifier = Modifier.size(24.dp)) }, label = { Text(name) })
                 }
             }
         }
@@ -122,10 +126,13 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                 onEdit = { editing = it },
                 onToggle = { rule, value -> editRules({ old -> old.map { if (it.id == rule.id) it.copy(enabled = value) else it } }) },
                 onAdd = { editing = Rule(name = "", marker = "#focus", soundMode = SoundMode.VIBRATE, leadMinutes = 5) },
-                onSetup = { page = 2 })
+                onSetup = { page = 3 })
             1 -> SchedulePage(status, enabled, access.exact, Modifier.padding(padding)) {
                 scope.launch { withContext(Dispatchers.IO) { automation.reconcile() } }
             }
+            2 -> CalendarPage(context, revision, rules, enabled, status, access.calendar,
+                access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
+                onEditRule = { editing = it })
             else -> SetupPage(access, calendars, Modifier.padding(padding), requestAccess)
         }
     }

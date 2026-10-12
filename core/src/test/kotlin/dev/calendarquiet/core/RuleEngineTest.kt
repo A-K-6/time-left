@@ -21,6 +21,16 @@ class RuleEngineTest {
         assertFalse(RuleEngine.matches(rule.copy(enabled = false), event()))
         assertFalse(RuleEngine.matches(rule, event(end = now)))
     }
+    @Test fun calendarCanIdentifyDisabledRulesWithoutEnablingAutomation() {
+        val disabled = rule.copy(enabled = false, calendarIds = setOf(7))
+        assertTrue(RuleEngine.matches(disabled, event(), includeDisabled = true))
+        assertFalse(RuleEngine.matches(disabled, event().copy(calendarId = 8), includeDisabled = true))
+        assertFalse(RuleEngine.matches(disabled, event(title = "#focused"), includeDisabled = true))
+        assertFalse(RuleEngine.matches(disabled, event().copy(allDay = true), includeDisabled = true))
+        assertFalse(RuleEngine.matches(disabled, event().copy(declined = true), includeDisabled = true))
+        assertTrue(RuleEngine.sessions(listOf(disabled), listOf(event())).isEmpty())
+        assertTrue(RuleEngine.sessions(listOf(rule), listOf(event().copy(declined = true))).isEmpty())
+    }
     @Test fun startsBeforeEventAndEndsExclusively() {
         val sessions = RuleEngine.sessions(listOf(rule.copy(leadMinutes = 5)), listOf(event()))
         assertEquals(SoundMode.UNCHANGED, RuleEngine.snapshot(sessions, now - 6 * MINUTE).soundMode)

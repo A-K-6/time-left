@@ -24,27 +24,30 @@ class DeviceCalendars(private val context: Context) {
         }
     }
 
-    fun events(now: Long): List<CalendarEvent> {
+    fun events(now: Long): List<CalendarEvent> = events(now - 24 * HOUR, now + 7 * 24 * HOUR).filterNot { it.declined }
+
+    fun events(from: Long, until: Long): List<CalendarEvent> {
         if (!hasPermission()) return emptyList()
         val ids = calendars().map { it.id }.toSet()
         if (ids.isEmpty()) return emptyList()
         val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
-        ContentUris.appendId(builder, now - 24 * HOUR)
-        ContentUris.appendId(builder, now + 7 * 24 * HOUR)
+        ContentUris.appendId(builder, from)
+        ContentUris.appendId(builder, until)
         val columns = arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.CALENDAR_ID,
             CalendarContract.Instances.TITLE, CalendarContract.Instances.DESCRIPTION,
-            CalendarContract.Instances.BEGIN, CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY)
+            CalendarContract.Instances.BEGIN, CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY,
+            CalendarContract.Events.SELF_ATTENDEE_STATUS)
         // Instances expands recurrence and respects moved/deleted occurrence exceptions.
         return buildList {
             context.contentResolver.query(builder.build(), columns,
-                "(${CalendarContract.Events.STATUS} IS NULL OR ${CalendarContract.Events.STATUS} != ?) AND " +
-                    "(${CalendarContract.Events.SELF_ATTENDEE_STATUS} IS NULL OR ${CalendarContract.Events.SELF_ATTENDEE_STATUS} != ?)",
-                arrayOf(CalendarContract.Events.STATUS_CANCELED.toString(), CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED.toString()),
+                "(${CalendarContract.Events.STATUS} IS NULL OR ${CalendarContract.Events.STATUS} != ?)",
+                arrayOf(CalendarContract.Events.STATUS_CANCELED.toString()),
                 "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
                 while (cursor.moveToNext()) {
                     val calendar = cursor.getLong(1)
                     if (calendar in ids) add(CalendarEvent(cursor.getLong(0), calendar, cursor.getString(2).orEmpty(),
-                        cursor.getString(3).orEmpty(), cursor.getLong(4), cursor.getLong(5), cursor.getInt(6) != 0))
+                        cursor.getString(3).orEmpty(), cursor.getLong(4), cursor.getLong(5), cursor.getInt(6) != 0,
+                        cursor.getInt(7) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED))
                 }
             }
         }
