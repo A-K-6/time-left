@@ -1,6 +1,6 @@
 # Day view and timer sounds — 2026-10-29
 
-Time Left 0.2.1 (version code 4) adds an hourly day calendar and customizable timer cues. The existing Android package and development signing certificate are retained for upgrades.
+Time Left 0.2.1 (version code 4) adds an hourly day calendar and customizable timer cues. The existing Android package and development signing certificate are retained for upgrades. The development-signed preview is distributed as a private preview.
 
 ## Behavior
 
@@ -35,3 +35,5 @@ An isolated Android 15 / API 35 emulator was upgraded from the previous preview.
 - Enabled start cues and disabled finish cues for a one-minute break. Its start alert used the separate break sound; completion posted no finish alert and did not increment the focus count. Restored both cue switches afterward.
 
 Local screenshots and native inspection output are retained in the implementation worktree's ignored `artifacts/day-sound-validation/` directory. Audio routing and notification delivery were checked in the emulator; physical-speaker audibility and manufacturer-specific background behavior need a phone check. HyperIsland/numeric status chips remain outside this update.
+
+The final optimized APK was installed over the debug preview. Separate tone choices survived, the focus test notification used the configured channel, and the day view/event-details dialog rendered correctly. APK signing and 16 KiB ZIP alignment passed. APK SHA-256: `0eaeaeab8967295f754fd3205f932388f10965e4ca78e51f900eb9eea375ec11`.
