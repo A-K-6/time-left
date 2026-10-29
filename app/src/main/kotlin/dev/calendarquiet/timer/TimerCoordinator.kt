@@ -21,6 +21,8 @@ class TimerCoordinator(private val context: Context) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(store.read())
     val state = mutableState.asStateFlow()
+    private val mutableCalendarSelection = MutableStateFlow(store.calendarIds())
+    val calendarSelection = mutableCalendarSelection.asStateFlow()
 
     fun bootCount(): Int = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
 
@@ -56,7 +58,10 @@ class TimerCoordinator(private val context: Context) {
         publish()
     }
 
-    suspend fun selectCalendars(ids: Set<Long>?) = mutex.withLock { store.selectCalendars(ids) }
+    suspend fun selectCalendars(ids: Set<Long>?) = mutex.withLock {
+        store.selectCalendars(ids)
+        mutableCalendarSelection.value = ids
+    }
 
     private fun save(state: TimerState) { store.write(state); mutableState.value = state }
 

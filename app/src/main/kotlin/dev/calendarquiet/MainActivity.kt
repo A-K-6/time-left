@@ -67,6 +67,8 @@ class MainActivity : ComponentActivity() {
             "break_sound" -> openSettings(dev.calendarquiet.timer.TimerNotifications(this).settingsIntent(dev.calendarquiet.core.TimerKind.BREAK))
             "calendar_timer_sound" -> openSettings(dev.calendarquiet.timer.TimerNotifications(this).settingsIntent(dev.calendarquiet.core.TimerKind.EVENT))
             "alarm_volume" -> openSettings(Intent(Settings.ACTION_SOUND_SETTINGS))
+            "calendar_sync" -> openSettings(Intent(Settings.ACTION_SYNC_SETTINGS)
+                .putExtra(Settings.EXTRA_AUTHORITIES, arrayOf(android.provider.CalendarContract.AUTHORITY)))
             "sound" -> openSettings(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
             "snooze" -> openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
                 .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,

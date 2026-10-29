@@ -1,10 +1,6 @@
 package dev.calendarquiet.ui
 
 import android.content.Context
-import android.database.ContentObserver
-import android.os.Handler
-import android.os.Looper
-import android.provider.CalendarContract
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
@@ -23,13 +19,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.core.CalendarEvent
+import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.core.Rule
 import dev.calendarquiet.core.RuleEngine
 import dev.calendarquiet.core.Session
 import dev.calendarquiet.core.SoundMode
 import dev.calendarquiet.core.occursOn
 import dev.calendarquiet.core.TimerKind
-import dev.calendarquiet.data.DeviceCalendar
 import dev.calendarquiet.quietApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -47,10 +43,11 @@ import java.util.Locale
 
 @Composable
 internal fun CalendarPage(
-    context: Context, revision: Int, rules: List<Rule>, enabled: Boolean,
+    context: Context, revision: Int, calendarRevision: Int, rules: List<Rule>, enabled: Boolean,
     status: AutomationStatus, hasAccess: Boolean, soundAccess: Boolean, snoozeAccess: Boolean,
-    reminderAccess: Boolean, calendars: List<DeviceCalendar>,
+    reminderAccess: Boolean, calendars: List<CalendarSource>,
     modifier: Modifier, onRequestAccess: () -> Unit, onEditRule: (Rule) -> Unit, onOpenTimer: () -> Unit,
+    onChooseCalendars: () -> Unit, onRefreshCalendars: () -> Unit,
 ) {
     var selectedDay by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var view by rememberSaveable { mutableStateOf("day") }
@@ -58,6 +55,7 @@ internal fun CalendarPage(
     var timerError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val timerState by context.quietApp.timers.state.collectAsState()
+    val selectedCalendars by context.quietApp.timers.calendarSelection.collectAsState()
     val date = LocalDate.parse(selectedDay)
     val month = YearMonth.from(date)
     val zone = ZoneId.systemDefault()
@@ -65,20 +63,12 @@ internal fun CalendarPage(
     var events by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var refresh by remember { mutableIntStateOf(0) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    DisposableEffect(context, hasAccess) {
-        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) { refresh++ }
-        }
-        if (hasAccess) context.contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, observer)
-        onDispose { context.contentResolver.unregisterContentObserver(observer) }
-    }
     LaunchedEffect(Unit) {
         while (true) { now = System.currentTimeMillis(); delay(30_000) }
     }
-    LaunchedEffect(month, zone, revision, hasAccess, refresh) {
+    LaunchedEffect(month, zone, revision, hasAccess, calendarRevision, selectedCalendars) {
         events = emptyList()
         error = null
         loading = hasAccess
@@ -89,7 +79,7 @@ internal fun CalendarPage(
             events = withContext(Dispatchers.IO) {
                 context.quietApp.automation.calendars.events(
                     month.atDay(1).minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
-                    month.plusMonths(1).atDay(1).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
+                    month.plusMonths(1).atDay(1).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), selectedCalendars)
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -113,9 +103,12 @@ internal fun CalendarPage(
             FilterChip(selected = view == "month", onClick = { view = "month" }, label = { Text("Month") })
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { selectedDay = LocalDate.now().toString() }) { Text("Today") }
-            IconButton(onClick = { refresh++ }, enabled = hasAccess && !loading) {
+            IconButton(onClick = onRefreshCalendars, enabled = hasAccess && !loading) {
                 Icon(painterResource(android.R.drawable.ic_menu_rotate), "Refresh calendar", Modifier.size(24.dp))
             }
+        }
+        if (hasAccess) TextButton(onClick = onChooseCalendars, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text(if (selectedCalendars == null) "All visible calendars · Change" else "${selectedCalendars!!.size} calendars selected · Change")
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { selectedDay = (if (view == "day") date.minusDays(1) else month.minusMonths(1).atDay(1)).toString() }) {
@@ -149,7 +142,7 @@ internal fun CalendarPage(
                 }
                 if (!loading && error == null && dayEvents.isEmpty()) item { Text("No events on this day") }
                 items(dayEvents, key = { "${it.calendarId}:${it.id}:${it.start}" }) { event ->
-                    EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId }?.name,
+                    EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId },
                         rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
                     HorizontalDivider(Modifier.padding(top = 12.dp))
                 }
@@ -161,7 +154,7 @@ internal fun CalendarPage(
         AlertDialog(onDismissRequest = { selectedEvent = null }, title = { Text("Event details") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId }?.name,
+                    EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId },
                         rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
                     if (!event.busy) Text("Marked free", style = MaterialTheme.typography.bodySmall)
                     if (canCountDown && timerState.active != null) Text("A timer is already running.", style = MaterialTheme.typography.bodySmall)
@@ -230,19 +223,21 @@ private fun MonthGrid(month: YearMonth, selected: LocalDate,
 }
 
 @Composable
-private fun EventAgenda(event: CalendarEvent, calendarName: String?, rules: List<Rule>, enabled: Boolean,
+private fun EventAgenda(event: CalendarEvent, calendar: CalendarSource?, rules: List<Rule>, enabled: Boolean,
     status: AutomationStatus, now: Long, zone: ZoneId, soundAccess: Boolean, snoozeAccess: Boolean,
     reminderAccess: Boolean, onEditRule: (Rule) -> Unit) {
-    val matching = rules.filter { RuleEngine.matches(it, event, includeDisabled = true) }
+    val quietAvailable = calendar?.includedByDefault != false
+    val matching = if (quietAvailable) rules.filter { RuleEngine.matches(it, event, includeDisabled = true) } else emptyList()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(event.title.ifBlank { "Untitled event" }, style = MaterialTheme.typography.titleMedium)
         val formatter = DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.SHORT).withZone(zone)
         Text(if (event.allDay) "All day" else "${formatter.format(Instant.ofEpochMilli(event.start))} - ${formatter.format(Instant.ofEpochMilli(event.end))}",
             style = MaterialTheme.typography.bodyMedium)
-        calendarName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        calendar?.let { Text(it.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (matching.isEmpty()) {
             Text(when { event.declined -> "Declined - quiet rules do not run"
                 event.allDay -> "All-day event - quiet rules do not run"
+                !quietAvailable -> "Hidden or sync-disabled calendar - quiet rules do not run"
                 else -> "No quiet rule" }, style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

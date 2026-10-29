@@ -8,11 +8,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
-import android.database.ContentObserver
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
-import android.provider.CalendarContract
 import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
@@ -31,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.calendarquiet.core.*
-import dev.calendarquiet.data.DeviceCalendar
 import dev.calendarquiet.quietApp
 import dev.calendarquiet.timer.TimerWidget
 import dev.calendarquiet.timer.finishLabel
@@ -43,7 +38,8 @@ import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 
 @Composable
-internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requestAccess: (String) -> Unit) {
+internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, calendars: List<CalendarSource>,
+    modifier: Modifier, requestAccess: (String) -> Unit, onChooseCalendars: () -> Unit, onRefreshCalendars: () -> Unit) {
     val timers = context.quietApp.timers
     val state by timers.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -59,11 +55,8 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
     var error by remember { mutableStateOf<String?>(null) }
     var calendarError by remember { mutableStateOf<String?>(null) }
     var events by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
-    var calendars by remember { mutableStateOf<List<DeviceCalendar>>(emptyList()) }
-    var selected by remember { mutableStateOf(timers.store.calendarIds()) }
-    var pickingCalendars by remember { mutableStateOf(false) }
+    val selected by timers.calendarSelection.collectAsState()
     var showSoundSettings by rememberSaveable { mutableStateOf(false) }
-    var calendarRevision by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     val calendarAccess = remember(revision) {
         context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
@@ -109,28 +102,18 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
             delay(1000)
         }
     }
-    DisposableEffect(context, calendarAccess) {
-        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) { calendarRevision++ }
-        }
-        if (calendarAccess) context.contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, observer)
-        onDispose { context.contentResolver.unregisterContentObserver(observer) }
-    }
-    LaunchedEffect(revision, calendarAccess, calendarRevision) {
+    LaunchedEffect(revision, calendarAccess, calendarRevision, selected) {
         events = emptyList()
-        calendars = emptyList()
         calendarError = null
         loading = calendarAccess
         if (!calendarAccess) return@LaunchedEffect
         try {
             delay(200)
-            val (available, instances) = withContext(Dispatchers.IO) {
+            events = withContext(Dispatchers.IO) {
                 val provider = context.quietApp.automation.calendars
                 val from = System.currentTimeMillis()
-                provider.calendars() to provider.events(from, from + 7 * 24 * HOUR)
+                provider.events(from, from + 7 * 24 * HOUR, selected)
             }
-            calendars = available
-            events = instances
         } catch (exception: CancellationException) { throw exception }
         catch (_: Exception) { calendarError = "Could not read your calendar. Tap Refresh to try again." }
         finally { loading = false }
@@ -186,7 +169,7 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Your calendar", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { calendarRevision++ }, enabled = calendarAccess && !loading) { Text("Refresh") }
+                TextButton(onClick = onRefreshCalendars, enabled = calendarAccess && !loading) { Text("Refresh") }
             }
         }
         if (!calendarAccess) item {
@@ -197,31 +180,16 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
                 }
             }
         } else {
-            item { TextButton(onClick = { pickingCalendars = !pickingCalendars }) {
+            item { TextButton(onClick = onChooseCalendars) {
                 Text(if (selected == null) "All visible calendars · Change" else "${selected!!.size} calendars selected · Change")
             } }
-            if (pickingCalendars) {
-                item { TextButton(onClick = { perform { timers.selectCalendars(null); withContext(Dispatchers.Main) { selected = null } } }) {
-                    Text("Use all visible calendars")
-                } }
-                items(calendars, key = { "calendar-${it.id}" }) { calendar ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = selected == null || calendar.id in selected!!, onCheckedChange = { checked ->
-                            val next = (selected ?: calendars.map { it.id }.toSet()).toMutableSet().apply {
-                                if (checked) add(calendar.id) else remove(calendar.id)
-                            }.toSet()
-                            perform { timers.selectCalendars(next); withContext(Dispatchers.Main) { selected = next } }
-                        }, enabled = !busy)
-                        Text(calendar.name, Modifier.weight(1f))
-                    }
-                }
-            }
             if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             calendarError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
             items(suggestions.current, key = { "event-${it.calendarId}-${it.id}-${it.start}" }) { event ->
                 OutlinedCard {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(event.title.ifBlank { "Current event" }, style = MaterialTheme.typography.titleMedium)
+                        calendars.firstOrNull { it.id == event.calendarId }?.let { Text(it.description, style = MaterialTheme.typography.bodySmall) }
                         Text("${formatCountdown(event.end - now)} left · ends ${finishLabel(event.end)}")
                         Button(onClick = { perform { timers.startUntil(TimerKind.EVENT, event.title.ifBlank { "Event" }, event.end) } },
                             enabled = canStart) { Text("Count down this event") }

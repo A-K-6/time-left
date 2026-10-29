@@ -6,29 +6,32 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import dev.calendarquiet.core.CalendarEvent
+import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.core.HOUR
-
-data class DeviceCalendar(val id: Long, val name: String, val account: String)
+import dev.calendarquiet.core.selectCalendarSources
 
 class DeviceCalendars(private val context: Context) {
     fun hasPermission() = context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
-    fun calendars(): List<DeviceCalendar> {
+    fun calendars(): List<CalendarSource> {
         if (!hasPermission()) return emptyList()
-        val columns = arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, CalendarContract.Calendars.ACCOUNT_NAME)
+        val columns = arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Calendars.ACCOUNT_NAME, CalendarContract.Calendars.ACCOUNT_TYPE,
+            CalendarContract.Calendars.VISIBLE, CalendarContract.Calendars.SYNC_EVENTS)
         return buildList {
-            context.contentResolver.query(CalendarContract.Calendars.CONTENT_URI, columns,
-                "${CalendarContract.Calendars.SYNC_EVENTS}=1 AND ${CalendarContract.Calendars.VISIBLE}=1", null, null)?.use { cursor ->
-                while (cursor.moveToNext()) add(DeviceCalendar(cursor.getLong(0), cursor.getString(1).orEmpty(), cursor.getString(2).orEmpty()))
+            context.contentResolver.query(CalendarContract.Calendars.CONTENT_URI, columns, null, null,
+                "${CalendarContract.Calendars.CALENDAR_DISPLAY_NAME} COLLATE NOCASE ASC")?.use { cursor ->
+                while (cursor.moveToNext()) add(CalendarSource(cursor.getLong(0), cursor.getString(1).orEmpty(),
+                    cursor.getString(2).orEmpty(), cursor.getString(3).orEmpty(), cursor.getInt(4) != 0, cursor.getInt(5) != 0))
             }
         }
     }
 
     fun events(now: Long): List<CalendarEvent> = events(now - 24 * HOUR, now + 7 * 24 * HOUR).filterNot { it.declined }
 
-    fun events(from: Long, until: Long): List<CalendarEvent> {
+    fun events(from: Long, until: Long, selectedIds: Set<Long>? = null): List<CalendarEvent> {
         if (!hasPermission()) return emptyList()
-        val ids = calendars().map { it.id }.toSet()
+        val ids = selectCalendarSources(calendars(), selectedIds).map { it.id }.toSet()
         if (ids.isEmpty()) return emptyList()
         val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(builder, from)
@@ -40,8 +43,9 @@ class DeviceCalendars(private val context: Context) {
         // Instances expands recurrence and respects moved/deleted occurrence exceptions.
         return buildList {
             context.contentResolver.query(builder.build(), columns,
-                "(${CalendarContract.Events.STATUS} IS NULL OR ${CalendarContract.Events.STATUS} != ?)",
-                arrayOf(CalendarContract.Events.STATUS_CANCELED.toString()),
+                "(${CalendarContract.Events.STATUS} IS NULL OR ${CalendarContract.Events.STATUS} != ?) AND " +
+                    "${CalendarContract.Instances.CALENDAR_ID} IN (${ids.joinToString { "?" }})",
+                arrayOf(CalendarContract.Events.STATUS_CANCELED.toString(), *ids.map { it.toString() }.toTypedArray()),
                 "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
                 while (cursor.moveToNext()) {
                     val calendar = cursor.getLong(1)

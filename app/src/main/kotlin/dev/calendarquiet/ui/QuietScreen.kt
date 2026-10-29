@@ -7,6 +7,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.CalendarContract
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,9 +31,11 @@ import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.automation.QuietNotificationListener
 import dev.calendarquiet.core.Rule
 import dev.calendarquiet.core.SoundMode
-import dev.calendarquiet.data.DeviceCalendar
+import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.quietApp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -48,7 +54,13 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     var rules by remember { mutableStateOf(automation.store.rules()) }
     var enabled by remember { mutableStateOf(automation.store.enabled) }
     var editing by remember { mutableStateOf<Rule?>(null) }
-    var calendars by remember { mutableStateOf<List<DeviceCalendar>>(emptyList()) }
+    var calendars by remember { mutableStateOf<List<CalendarSource>>(emptyList()) }
+    var calendarRevision by remember { mutableIntStateOf(0) }
+    var choosingCalendars by rememberSaveable { mutableStateOf(false) }
+    var calendarLoading by remember { mutableStateOf(false) }
+    var calendarError by remember { mutableStateOf<String?>(null) }
+    var calendarSaving by remember { mutableStateOf(false) }
+    val selectedCalendars by context.quietApp.timers.calendarSelection.collectAsState()
     var installed by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -58,11 +70,31 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         rules = automation.store.rules()
         enabled = automation.store.enabled
         withContext(Dispatchers.IO) {
-            val deviceCalendars = runCatching { automation.calendars.calendars() }.getOrDefault(emptyList())
             val apps = readApps(context)
-            withContext(Dispatchers.Main) { calendars = deviceCalendars; installed = apps }
+            withContext(Dispatchers.Main) { installed = apps }
         }
     }
+    DisposableEffect(context, access.calendar) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { calendarRevision++ }
+        }
+        if (access.calendar) context.contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, observer)
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
+    }
+    LaunchedEffect(revision, calendarRevision, access.calendar) {
+        calendarError = null
+        calendars = emptyList()
+        calendarLoading = access.calendar
+        if (!access.calendar) return@LaunchedEffect
+        try {
+            delay(200)
+            calendars = withContext(Dispatchers.IO) { automation.calendars.calendars() }
+        } catch (exception: CancellationException) { throw exception }
+        catch (_: Exception) { calendarError = "Could not read calendar sources. Tap Refresh to try again." }
+        finally { calendarLoading = false }
+    }
+
+    fun chooseCalendars() { calendarRevision++; choosingCalendars = true }
 
     fun editRules(transform: (List<Rule>) -> List<Rule>, close: Boolean = false) {
         busy = true
@@ -105,13 +137,14 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         val current = editing
         if (current != null) {
             key(current.id) {
-                RuleEditor(current, calendars, installed, busy, Modifier.padding(padding),
+                RuleEditor(current, calendars.filter { it.includedByDefault }, installed, busy, Modifier.padding(padding),
                     onSave = { edited -> editRules({ old -> old.filterNot { it.id == edited.id } + edited }, close = true) },
                     onDelete = { editRules({ old -> old.filterNot { it.id == current.id } }, close = true) },
                     isExisting = rules.any { it.id == current.id })
             }
         } else when (page) {
-            0 -> TimerPage(context, revision, Modifier.padding(padding), requestAccess)
+            0 -> TimerPage(context, revision, calendarRevision, calendars, Modifier.padding(padding), requestAccess,
+                onChooseCalendars = ::chooseCalendars, onRefreshCalendars = { calendarRevision++ })
             2 -> RulesPage(rules, enabled, status, access, busy, Modifier.padding(padding),
                 onEnabled = { value ->
                     if (value && !access.calendar) requestAccess("calendar")
@@ -131,12 +164,24 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
             3 -> SchedulePage(status, enabled, access.exact, Modifier.padding(padding)) {
                 scope.launch { withContext(Dispatchers.IO) { automation.reconcile() } }
             }
-            1 -> CalendarPage(context, revision, rules, enabled, status, access.calendar,
+            1 -> CalendarPage(context, revision, calendarRevision, rules, enabled, status, access.calendar,
                 access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
-                onEditRule = { editing = it }, onOpenTimer = { page = 0 })
-            else -> SetupPage(access, calendars, Modifier.padding(padding), requestAccess)
+                onEditRule = { editing = it }, onOpenTimer = { page = 0 },
+                onChooseCalendars = ::chooseCalendars, onRefreshCalendars = { calendarRevision++ })
+            else -> SetupPage(access, calendars, calendarLoading, calendarError, Modifier.padding(padding), requestAccess, ::chooseCalendars)
         }
     }
+    if (choosingCalendars) CalendarSourcesDialog(calendars, selectedCalendars, calendarLoading, calendarError, calendarSaving,
+        onSelect = { ids ->
+            calendarSaving = true
+            scope.launch {
+                try { withContext(Dispatchers.IO) { context.quietApp.timers.selectCalendars(ids) } }
+                catch (exception: CancellationException) { throw exception }
+                catch (_: Exception) { error = "Could not save calendar selection." }
+                finally { calendarSaving = false }
+            }
+        }, onReload = { calendarRevision++ }, onSyncSettings = { requestAccess("calendar_sync") },
+        onDismiss = { choosingCalendars = false })
     error?.let { message -> AlertDialog(onDismissRequest = { error = null }, title = { Text("Could not finish") },
         text = { Text(message) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } }) }
 }
@@ -224,7 +269,8 @@ private fun SchedulePage(status: AutomationStatus, enabled: Boolean, exact: Bool
 }
 
 @Composable
-private fun SetupPage(access: Access, calendars: List<DeviceCalendar>, modifier: Modifier, requestAccess: (String) -> Unit) {
+private fun SetupPage(access: Access, calendars: List<CalendarSource>, calendarLoading: Boolean, calendarError: String?,
+    modifier: Modifier, requestAccess: (String) -> Unit, onChooseCalendars: () -> Unit) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Enable what you need", style = MaterialTheme.typography.titleLarge)
         Text("Events come from calendars synced to this phone. Your rules and settings stay on this device.")
@@ -235,9 +281,13 @@ private fun SetupPage(access: Access, calendars: List<DeviceCalendar>, modifier:
         AccessCard("Alarms & reminders", "Allows precise event-boundary timing. Without it, Android may delay changes.", access.exact) { requestAccess("timing") }
         if (access.calendar) {
             OutlinedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Synced calendars", style = MaterialTheme.typography.titleMedium)
-                if (calendars.isEmpty()) Text("No visible synced calendars found. Enable sync and visibility in your calendar app.")
-                calendars.forEach { Text("${it.name} · ${it.account}", style = MaterialTheme.typography.bodySmall) }
+                Text("Calendar sources", style = MaterialTheme.typography.titleMedium)
+                if (calendarLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                calendarError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (!calendarLoading && calendarError == null && calendars.isEmpty()) Text("No calendars found. Check Calendar sync for your account.")
+                calendars.forEach { Text(it.description, style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = onChooseCalendars) { Text("Choose calendars") }
+                TextButton(onClick = { requestAccess("calendar_sync") }) { Text("Account sync settings") }
             } }
         }
         OutlinedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -264,7 +314,7 @@ private fun AccessCard(title: String, detail: String, granted: Boolean, action: 
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun RuleEditor(original: Rule, calendars: List<DeviceCalendar>, apps: List<InstalledApp>, busy: Boolean,
+private fun RuleEditor(original: Rule, calendars: List<CalendarSource>, apps: List<InstalledApp>, busy: Boolean,
     modifier: Modifier, onSave: (Rule) -> Unit, onDelete: () -> Unit, isExisting: Boolean) {
     var name by rememberSaveable { mutableStateOf(original.name) }
     var marker by rememberSaveable { mutableStateOf(original.marker) }
