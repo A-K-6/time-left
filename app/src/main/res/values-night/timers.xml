@@ -1,0 +1,4 @@
+<resources>
+    <color name="timer_widget_background">#1D2B21</color>
+    <color name="timer_widget_text">#E0ECE0</color>
+</resources>

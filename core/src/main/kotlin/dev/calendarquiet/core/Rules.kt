@@ -39,6 +39,7 @@ data class CalendarEvent(
     val end: Long,
     val allDay: Boolean = false,
     val declined: Boolean = false,
+    val busy: Boolean = true,
 )
 
 data class Session(val rule: Rule, val event: CalendarEvent) {

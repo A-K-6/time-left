@@ -83,8 +83,8 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (editing != null) "Edit rule" else "Calendar Quiet", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                        Text(if (editing != null) "Choose when and how it runs" else "Your calendar. A quieter phone.", style = MaterialTheme.typography.bodySmall)
+                        Text(if (editing != null) "Edit rule" else "Time Left", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                        Text(if (editing != null) "Choose when and how it runs" else "A little more aware of your time.", style = MaterialTheme.typography.bodySmall)
                     }
                     if (editing != null) TextButton(onClick = { editing = null }) { Text("Back") }
                 }
@@ -92,12 +92,12 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         },
         bottomBar = {
             if (editing == null) NavigationBar {
-                listOf("Rules", "Schedule", "Calendar", "Setup").forEachIndexed { index, name ->
+                listOf("Timer", "Calendar", "Rules", "Schedule", "Setup").forEachIndexed { index, name ->
                     NavigationBarItem(selected = page == index, onClick = { page = index },
-                        icon = { Icon(painterResource(listOf(android.R.drawable.ic_menu_agenda,
-                            android.R.drawable.ic_menu_recent_history, android.R.drawable.ic_menu_month,
+                        icon = { Icon(painterResource(listOf(dev.calendarquiet.R.drawable.ic_timer, android.R.drawable.ic_menu_month,
+                            android.R.drawable.ic_menu_agenda, android.R.drawable.ic_menu_recent_history,
                             android.R.drawable.ic_menu_preferences)[index]), contentDescription = name,
-                            modifier = Modifier.size(24.dp)) }, label = { Text(name) })
+                            modifier = Modifier.size(24.dp)) }, label = { Text(name, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) })
                 }
             }
         }
@@ -111,7 +111,8 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                     isExisting = rules.any { it.id == current.id })
             }
         } else when (page) {
-            0 -> RulesPage(rules, enabled, status, access, busy, Modifier.padding(padding),
+            0 -> TimerPage(context, revision, Modifier.padding(padding), requestAccess)
+            2 -> RulesPage(rules, enabled, status, access, busy, Modifier.padding(padding),
                 onEnabled = { value ->
                     if (value && !access.calendar) requestAccess("calendar")
                     else {
@@ -126,11 +127,11 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                 onEdit = { editing = it },
                 onToggle = { rule, value -> editRules({ old -> old.map { if (it.id == rule.id) it.copy(enabled = value) else it } }) },
                 onAdd = { editing = Rule(name = "", marker = "#focus", soundMode = SoundMode.VIBRATE, leadMinutes = 5) },
-                onSetup = { page = 3 })
-            1 -> SchedulePage(status, enabled, access.exact, Modifier.padding(padding)) {
+                onSetup = { page = 4 })
+            3 -> SchedulePage(status, enabled, access.exact, Modifier.padding(padding)) {
                 scope.launch { withContext(Dispatchers.IO) { automation.reconcile() } }
             }
-            2 -> CalendarPage(context, revision, rules, enabled, status, access.calendar,
+            1 -> CalendarPage(context, revision, rules, enabled, status, access.calendar,
                 access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
                 onEditRule = { editing = it })
             else -> SetupPage(access, calendars, Modifier.padding(padding), requestAccess)

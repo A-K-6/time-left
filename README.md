@@ -1,8 +1,26 @@
-# Calendar Quiet
+# Time Left
 
-A native Android app that applies small, local rules to calendar events. Built for Android 13+ with Kotlin and Compose Material 3; intended for recent Samsung and Xiaomi phones.
+A small, local Android timer for Pomodoros, calendar events and free time. Built for Android 13+ with Kotlin and Compose Material 3. The app keeps the original `dev.calendarquiet` package so an upgrade retains existing settings; the earlier Calendar Quiet tools remain available.
 
-## What it does
+## Timers
+
+The **Timer** tab is the home screen. Nothing starts automatically:
+
+- **Pomodoro:** choose focus and break lengths (1–180 minutes), start either, and see completed focus sessions for today. Each next session starts with a tap. A short focus session can fit the gap before your next busy event without changing your usual focus length.
+- **Current event:** choose an event already in progress and count down to its end. Overlapping events are offered individually.
+- **Free time:** count down to the next timed busy event, or choose a custom end time. Calendar selection is independent of quiet rules. Declined, all-day, cancelled and explicitly free events do not block free time. Suggestions look ahead seven days; an empty calendar is not presented as unlimited free time.
+
+One active timer is shared by the app, an ongoing notification, the lock screen (subject to system settings), and a resizable **Time Left** home-screen widget. Add it from the Timer page or the launcher's widget picker. A basic Dismiss action clears an active timer without counting it as completed. Pause/resume and automatic Pomodoro cycles are deferred.
+
+Allow notifications to see the timer outside the app and receive a finish notification. Allow **Alarms & reminders** for precise completion. Without this access, Android may delay the finish alert and the widget's completed state; the ongoing notification expires at the deadline. A finish notification uses the system channel's sound/vibration settings, not a continuously ringing alarm.
+
+Timers are saved before scheduling. Duration timers use elapsed realtime; calendar/free-time timers use a wall-clock deadline. Boot, clock changes, app upgrades and granting exact-alarm access reconcile active timers. Revoking exact-alarm access can stop the process and cancel alarms; reopen the app to reconcile using the remaining access. The app does not run a per-second background service: Android renders notification/widget chronometers, and one AlarmManager callback handles completion. Force-stopping the app prevents callbacks until it is opened again.
+
+Calendar-derived timers capture the deadline at Start. Calendar edits refresh suggestions while the Timer page is open, but do not move a running timer's deadline in this base version. Calendar sync freshness is owned by the phone's calendar account. A duration timer recovered after a reboot uses its last saved wall-clock deadline.
+
+This version implements standard Android notifications and widgets. The ordinary status bar shows the app's timer icon; a numeric status chip, Xiaomi HyperIsland integration, and always-on-display behavior are not claimed. Physical Xiaomi/Samsung behavior still needs device validation.
+
+## Optional quiet rules
 
 Add a marker such as `#focus` to an event title or description in Google Calendar, then configure the matching rule in Calendar Quiet:
 
@@ -24,13 +42,13 @@ Requirements: JDK 17, Android SDK platform 36 and Build Tools 35.0.0. Android St
 ./gradlew :core:test :app:assembleDebug :app:lintDebug
 ```
 
-The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Release shrinking is enabled; release signing is intentionally left for the owner's signing configuration.
+The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Release shrinking is enabled; release signing is intentionally left for the owner's signing configuration. The local timer preview is `artifacts/time-left-preview.apk`, an optimized release signed with the development debug key for device testing. It is not a production-signed release.
 
-The locally built prototype is at `artifacts/calendar-quiet-preview.apk`: the optimized release build signed with the development debug key for device testing. It is not a production-signed release. The unsigned optimized output remains at `app/build/outputs/apk/release/app-release-unsigned.apk`.
+The Time Left preview is local only; the unsigned optimized output is at `app/build/outputs/apk/release/app-release-unsigned.apk`.
 
-Verified on 2026-10-13: all 16 core tests passed, including calendar date-boundary and time-zone coverage; debug and optimized release APK builds succeeded; Android lint reported zero errors (remaining warnings are dependency-update and Kotlin/style suggestions). The optimized preview is approximately 2.21 MiB, and its APK signature and 16 KiB ZIP alignment were verified. No physical-device or battery measurements have been performed.
+Verified on 2026-10-29: all 28 core tests passed; debug and optimized release builds succeeded; Android lint reported zero errors. APK signing and 16 KiB ZIP alignment were verified. See [timer validation](docs/timer-base-validation.md) for emulator checks and remaining device work. No physical-device or battery measurements have been performed.
 
-## First use
+## Optional quiet-rule setup
 
 1. Install and open the app. Automation starts paused.
 2. In **Setup**, allow calendar access. Enable Google Calendar sync on the phone and make the calendar visible in the calendar app.
@@ -77,6 +95,10 @@ Use short test events in a calendar you control. Check each case on both Samsung
 On Samsung, inspect Sleeping/Deep sleeping apps if scheduled actions are missed. On Xiaomi, inspect background autostart and per-app battery restrictions. Exact menu names vary; the app links to its Android settings. Change these settings only if testing demonstrates a need.
 
 ## Code layout
+
+- `core/.../Timers.kt`: countdown clocks, completion counting and calendar suggestions.
+- `app/.../timer/`: persistent timer state, alarms, notifications and the widget.
+- `app/.../ui/TimerPage.kt`: timer-first Compose UI.
 
 - `core/`: Android-independent marker matching, rule validation, overlap calculation, timing and reminder deduplication, with JVM tests.
 - `app/.../data/`: local rules and calendar-provider queries.

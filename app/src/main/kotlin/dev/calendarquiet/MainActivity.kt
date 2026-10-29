@@ -39,7 +39,10 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onResume() { super.onResume(); revision++; refresh() }
-    private fun refresh() { quietApp.scope.launch { quietApp.automation.reconcile() } }
+    private fun refresh() {
+        quietApp.scope.launch { quietApp.automation.reconcile() }
+        quietApp.scope.launch { quietApp.timers.refresh() }
+    }
 
     private fun requestAccess(kind: String) {
         val prefs = quietApp.automation.store.prefs

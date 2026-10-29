@@ -36,7 +36,7 @@ class DeviceCalendars(private val context: Context) {
         val columns = arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.CALENDAR_ID,
             CalendarContract.Instances.TITLE, CalendarContract.Instances.DESCRIPTION,
             CalendarContract.Instances.BEGIN, CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY,
-            CalendarContract.Events.SELF_ATTENDEE_STATUS)
+            CalendarContract.Events.SELF_ATTENDEE_STATUS, CalendarContract.Events.AVAILABILITY)
         // Instances expands recurrence and respects moved/deleted occurrence exceptions.
         return buildList {
             context.contentResolver.query(builder.build(), columns,
@@ -47,7 +47,8 @@ class DeviceCalendars(private val context: Context) {
                     val calendar = cursor.getLong(1)
                     if (calendar in ids) add(CalendarEvent(cursor.getLong(0), calendar, cursor.getString(2).orEmpty(),
                         cursor.getString(3).orEmpty(), cursor.getLong(4), cursor.getLong(5), cursor.getInt(6) != 0,
-                        cursor.getInt(7) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED))
+                        cursor.getInt(7) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED,
+                        cursor.isNull(8) || cursor.getInt(8) != CalendarContract.Events.AVAILABILITY_FREE))
                 }
             }
         }

@@ -15,8 +15,10 @@ import kotlinx.coroutines.launch
 class QuietApplication : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val automation by lazy { Automation(this) }
+    val timers by lazy { dev.calendarquiet.timer.TimerCoordinator(this) }
     override fun onCreate() {
         super.onCreate()
+        scope.launch { timers.refresh() }
         // This receiver exists only while Android has a reason to keep our process alive.
         registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
