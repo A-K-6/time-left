@@ -63,6 +63,10 @@ class MainActivity : ComponentActivity() {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else openSettings(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
             }
+            "focus_sound" -> openSettings(dev.calendarquiet.timer.TimerNotifications(this).settingsIntent(dev.calendarquiet.core.TimerKind.FOCUS))
+            "break_sound" -> openSettings(dev.calendarquiet.timer.TimerNotifications(this).settingsIntent(dev.calendarquiet.core.TimerKind.BREAK))
+            "calendar_timer_sound" -> openSettings(dev.calendarquiet.timer.TimerNotifications(this).settingsIntent(dev.calendarquiet.core.TimerKind.EVENT))
+            "alarm_volume" -> openSettings(Intent(Settings.ACTION_SOUND_SETTINGS))
             "sound" -> openSettings(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
             "snooze" -> openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
                 .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,

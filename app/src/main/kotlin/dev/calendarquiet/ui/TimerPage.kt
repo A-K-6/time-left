@@ -62,6 +62,7 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
     var calendars by remember { mutableStateOf<List<DeviceCalendar>>(emptyList()) }
     var selected by remember { mutableStateOf(timers.store.calendarIds()) }
     var pickingCalendars by remember { mutableStateOf(false) }
+    var showSoundSettings by rememberSaveable { mutableStateOf(false) }
     var calendarRevision by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     val calendarAccess = remember(revision) {
@@ -181,6 +182,7 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
                 FilledTonalButton(onClick = { startDuration(TimerKind.BREAK, breakMinutes) }, Modifier.weight(1f), enabled = canStart) { Text("Start break") }
             }
         }
+        item { TextButton(onClick = { showSoundSettings = true }) { Text("Sounds & vibration") } }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Your calendar", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
@@ -280,6 +282,7 @@ internal fun TimerPage(context: Context, revision: Int, modifier: Modifier, requ
             } else Text("Add the Time Left widget from your home screen’s widget picker.", style = MaterialTheme.typography.bodySmall)
         }
     }
+    if (showSoundSettings) TimerSoundDialog(context, revision, requestAccess) { showSoundSettings = false }
     error?.let { message -> AlertDialog(onDismissRequest = { error = null }, title = { Text("Timer") }, text = { Text(message) },
         confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } }) }
 }

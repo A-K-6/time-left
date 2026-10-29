@@ -133,7 +133,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
             }
             1 -> CalendarPage(context, revision, rules, enabled, status, access.calendar,
                 access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
-                onEditRule = { editing = it })
+                onEditRule = { editing = it }, onOpenTimer = { page = 0 })
             else -> SetupPage(access, calendars, Modifier.padding(padding), requestAccess)
         }
     }

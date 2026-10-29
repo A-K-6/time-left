@@ -36,6 +36,7 @@ class TimerCoordinator(private val context: Context) {
         save(next)
         notifications.clearFinished()
         publish()
+        notifications.started(timer)
     }
 
     suspend fun startUntil(kind: TimerKind, title: String, endsAt: Long) = mutex.withLock {

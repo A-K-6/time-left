@@ -5,6 +5,8 @@ import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.CalendarContract
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,11 +28,13 @@ import dev.calendarquiet.core.RuleEngine
 import dev.calendarquiet.core.Session
 import dev.calendarquiet.core.SoundMode
 import dev.calendarquiet.core.occursOn
+import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.data.DeviceCalendar
 import dev.calendarquiet.quietApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
@@ -46,9 +50,14 @@ internal fun CalendarPage(
     context: Context, revision: Int, rules: List<Rule>, enabled: Boolean,
     status: AutomationStatus, hasAccess: Boolean, soundAccess: Boolean, snoozeAccess: Boolean,
     reminderAccess: Boolean, calendars: List<DeviceCalendar>,
-    modifier: Modifier, onRequestAccess: () -> Unit, onEditRule: (Rule) -> Unit,
+    modifier: Modifier, onRequestAccess: () -> Unit, onEditRule: (Rule) -> Unit, onOpenTimer: () -> Unit,
 ) {
     var selectedDay by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
+    var view by rememberSaveable { mutableStateOf("day") }
+    var selectedEvent by remember { mutableStateOf<CalendarEvent?>(null) }
+    var timerError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val timerState by context.quietApp.timers.state.collectAsState()
     val date = LocalDate.parse(selectedDay)
     val month = YearMonth.from(date)
     val zone = ZoneId.systemDefault()
@@ -96,54 +105,87 @@ internal fun CalendarPage(
         }
     }
 
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(month.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale)),
-                    Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                IconButton(onClick = { selectedDay = month.minusMonths(1).atDay(1).toString() }) {
-                    Icon(painterResource(android.R.drawable.ic_media_previous), "Previous month", Modifier.size(24.dp))
-                }
-                IconButton(onClick = { selectedDay = month.plusMonths(1).atDay(1).toString() }) {
-                    Icon(painterResource(android.R.drawable.ic_media_next), "Next month", Modifier.size(24.dp))
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { selectedDay = LocalDate.now().toString() }) { Text("Today") }
-                IconButton(onClick = { refresh++ }, enabled = hasAccess && !loading) {
-                    Icon(painterResource(android.R.drawable.ic_menu_rotate), "Refresh calendar", Modifier.size(24.dp))
-                }
+    val dayEvents = eventsByDay[date].orEmpty()
+    Column(modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(selected = view == "day", onClick = { view = "day" }, label = { Text("Day") })
+            Spacer(Modifier.width(8.dp))
+            FilterChip(selected = view == "month", onClick = { view = "month" }, label = { Text("Month") })
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { selectedDay = LocalDate.now().toString() }) { Text("Today") }
+            IconButton(onClick = { refresh++ }, enabled = hasAccess && !loading) {
+                Icon(painterResource(android.R.drawable.ic_menu_rotate), "Refresh calendar", Modifier.size(24.dp))
             }
         }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { selectedDay = (if (view == "day") date.minusDays(1) else month.minusMonths(1).atDay(1)).toString() }) {
+                Icon(painterResource(android.R.drawable.ic_media_previous), if (view == "day") "Previous day" else "Previous month", Modifier.size(24.dp))
+            }
+            Text(if (view == "day") date.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", locale))
+                else month.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale)), Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            IconButton(onClick = { selectedDay = (if (view == "day") date.plusDays(1) else month.plusMonths(1).atDay(1)).toString() }) {
+                Icon(painterResource(android.R.drawable.ic_media_next), if (view == "day") "Next day" else "Next month", Modifier.size(24.dp))
+            }
+        }
+        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
         if (!hasAccess) {
-            item {
+            Column(Modifier.padding(16.dp)) {
                 Text("Allow calendar access to see your events.")
                 Button(onClick = onRequestAccess) { Text("Allow calendar access") }
             }
+        } else if (view == "day") {
+            DayTimelineView(dayEvents, date, zone, now, !loading && error == null, Modifier.weight(1f)) { selectedEvent = it }
         } else {
-            item {
-                MonthGrid(month, date, eventsByDay, locale) { selectedDay = it.toString() }
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            }
-            if (!enabled) item { Text("Quiet automation is paused", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (enabled) item { Text(status.message, style = MaterialTheme.typography.bodySmall) }
-            error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
-            item {
-                HorizontalDivider()
-                Text(date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", locale)),
-                    Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold)
-            }
-            val dayEvents = eventsByDay[date].orEmpty()
-            if (!loading && error == null && dayEvents.isEmpty()) item { Text("No events on this day") }
-            items(dayEvents, key = { "${it.calendarId}:${it.id}:${it.start}" }) { event ->
-                EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId }?.name,
-                    rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
-                HorizontalDivider(Modifier.padding(top = 12.dp))
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item { MonthGrid(month, date, eventsByDay, locale) { selectedDay = it.toString(); view = "day" } }
+                if (!enabled) item { Text("Quiet automation is paused", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (enabled) item { Text(status.message, style = MaterialTheme.typography.bodySmall) }
+                item {
+                    HorizontalDivider()
+                    Text(date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", locale)),
+                        Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium)
+                }
+                if (!loading && error == null && dayEvents.isEmpty()) item { Text("No events on this day") }
+                items(dayEvents, key = { "${it.calendarId}:${it.id}:${it.start}" }) { event ->
+                    EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId }?.name,
+                        rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
+                    HorizontalDivider(Modifier.padding(top = 12.dp))
+                }
             }
         }
     }
+    selectedEvent?.let { event ->
+        val canCountDown = !event.allDay && !event.declined && event.start <= now && event.end > now
+        AlertDialog(onDismissRequest = { selectedEvent = null }, title = { Text("Event details") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId }?.name,
+                        rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
+                    if (!event.busy) Text("Marked free", style = MaterialTheme.typography.bodySmall)
+                    if (canCountDown && timerState.active != null) Text("A timer is already running.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                if (canCountDown && timerState.active == null) TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { context.quietApp.timers.startUntil(TimerKind.EVENT,
+                                event.title.ifBlank { "Event" }, event.end) }
+                            selectedEvent = null
+                            onOpenTimer()
+                        } catch (exception: CancellationException) { throw exception }
+                        catch (exception: Exception) { timerError = exception.message ?: "Could not start timer." }
+                    }
+                }) { Text("Count down event") }
+                else TextButton(onClick = { selectedEvent = null }) { Text("Done") }
+            }, dismissButton = {
+                if (canCountDown && timerState.active == null) TextButton(onClick = { selectedEvent = null }) { Text("Close") }
+            })
+    }
+    timerError?.let { message -> AlertDialog(onDismissRequest = { timerError = null }, title = { Text("Timer") },
+        text = { Text(message) }, confirmButton = { TextButton(onClick = { timerError = null }) { Text("OK") } }) }
 }
 
 @Composable
