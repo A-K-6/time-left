@@ -1,6 +1,6 @@
 # Timer base validation — 2026-10-29
 
-The Android package in Time Left 0.2.0 (version code 3) remains `dev.calendarquiet` for upgrades. No remote release or production signing was performed.
+The Android package in Time Left 0.2.0 (version code 3) remains `dev.calendarquiet` for upgrades. The development-signed preview is distributed as a private preview; this is not a production-signed or app-store release.
 
 ## Build and core checks
 
@@ -12,7 +12,7 @@ Used Gradle 8.13, JDK 17, SDK platform 36 and Build Tools 35.0.0 for:
 
 All 28 core tests passed: 12 timer tests, 12 rule-engine tests and 4 calendar-date tests. Timer coverage includes elapsed time versus wall time, clock correction followed by reboot, completion deduplication, local-day counting, overlap handling, calendar selection, free/declined/all-day events and invalid durations. Lint finished with zero errors; dependency and style warnings remain.
 
-The optimized APK is `artifacts/time-left-preview.apk`, signed with the existing development debug key. Signature verification and `zipalign -c -P 16 4` passed. The certificate SHA-256 is `2fafa7cd50c089f8b8e7b0a1b8e14db0cfda779ea7ab4bfa024b578f2880e296`, matching the earlier preview. `artifacts/timer-validation/` holds local screenshots and inspection output.
+The optimized APK is `artifacts/time-left-preview.apk`, signed with the existing development debug key. Signature verification and `zipalign -c -P 16 4` passed. The certificate SHA-256 is `2fafa7cd50c089f8b8e7b0a1b8e14db0cfda779ea7ab4bfa024b578f2880e296`, matching the earlier preview. The released APK SHA-256 is `97011edf38b4f2a4c9e10c4ee09351eeccdb25d760edde2f553cbdb0d6af2e17`. `artifacts/timer-validation/` in the implementation worktree holds local screenshots and inspection output.
 
 ## Android emulator checks
 

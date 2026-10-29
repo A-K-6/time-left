@@ -44,8 +44,6 @@ Requirements: JDK 17, Android SDK platform 36 and Build Tools 35.0.0. Android St
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Release shrinking is enabled; release signing is intentionally left for the owner's signing configuration. The local timer preview is `artifacts/time-left-preview.apk`, an optimized release signed with the development debug key for device testing. It is not a production-signed release.
 
-The Time Left preview is local only; the unsigned optimized output is at `app/build/outputs/apk/release/app-release-unsigned.apk`.
-
 Verified on 2026-10-29: all 28 core tests passed; debug and optimized release builds succeeded; Android lint reported zero errors. APK signing and 16 KiB ZIP alignment were verified. See [timer validation](docs/timer-base-validation.md) for emulator checks and remaining device work. No physical-device or battery measurements have been performed.
 
 ## Optional quiet-rule setup
