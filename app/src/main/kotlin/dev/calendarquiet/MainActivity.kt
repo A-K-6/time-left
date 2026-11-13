@@ -12,10 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
@@ -24,20 +20,28 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var revision by mutableIntStateOf(0)
+    private var openTimerRequest by mutableIntStateOf(0)
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { revision++; refresh() }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { revision++; refresh() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && intent.action == OPEN_TIMER) openTimerRequest++
         enableEdgeToEdge()
+        window.isNavigationBarContrastEnforced = false
         setContent {
-            val dark = isSystemInDarkTheme()
-            val colors = if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
-            MaterialTheme(colorScheme = colors) {
-                QuietScreen(this, revision, ::requestAccess)
+            dev.calendarquiet.ui.TimeLeftTheme {
+                QuietScreen(this, revision, ::requestAccess, openTimerRequest)
             }
         }
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == OPEN_TIMER) openTimerRequest++
+    }
+    companion object { const val OPEN_TIMER = "dev.calendarquiet.OPEN_TIMER" }
+
     override fun onResume() { super.onResume(); revision++; refresh() }
     private fun refresh() {
         quietApp.scope.launch { quietApp.automation.reconcile() }

@@ -27,6 +27,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.automation.QuietNotificationListener
 import dev.calendarquiet.core.Rule
@@ -46,11 +48,12 @@ private data class InstalledApp(val packageName: String, val label: String)
 private data class Access(val calendar: Boolean, val sound: Boolean, val reminders: Boolean, val snooze: Boolean, val exact: Boolean)
 
 @Composable
-fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit) {
+fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit, openTimerRequest: Int = 0) {
     val automation = context.quietApp.automation
     val status by automation.status.collectAsState()
     val scope = rememberCoroutineScope()
     var page by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(openTimerRequest) { if (openTimerRequest > 0) page = 0 }
     var rules by remember { mutableStateOf(automation.store.rules()) }
     var enabled by remember { mutableStateOf(automation.store.enabled) }
     var editing by remember { mutableStateOf<Rule?>(null) }
@@ -111,25 +114,31 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     BackHandler(editing != null) { editing = null }
     Scaffold(
         topBar = {
-            Surface(tonalElevation = 2.dp) {
-                Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 16.dp),
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 24.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (editing != null) "Edit rule" else "Time Left", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                        Text(if (editing != null) "Choose when and how it runs" else "A little more aware of your time.", style = MaterialTheme.typography.bodySmall)
+                        Text(if (editing != null) "Edit rule" else "time left", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
+                        if (editing != null) Text("Choose when and how it runs", style = MaterialTheme.typography.bodySmall)
                     }
                     if (editing != null) TextButton(onClick = { editing = null }) { Text("Back") }
+                    else {
+                        val timerState by context.quietApp.timers.state.collectAsState()
+                        Text("${timerState.completedToday(System.currentTimeMillis())} focus today", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         },
         bottomBar = {
-            if (editing == null) NavigationBar {
+            if (editing == null) NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
                 listOf("Timer", "Calendar", "Rules", "Schedule", "Setup").forEachIndexed { index, name ->
                     NavigationBarItem(selected = page == index, onClick = { page = index },
-                        icon = { Icon(painterResource(listOf(dev.calendarquiet.R.drawable.ic_timer, android.R.drawable.ic_menu_month,
-                            android.R.drawable.ic_menu_agenda, android.R.drawable.ic_menu_recent_history,
-                            android.R.drawable.ic_menu_preferences)[index]), contentDescription = name,
-                            modifier = Modifier.size(24.dp)) }, label = { Text(name, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) })
+                        colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent),
+                        icon = { Icon(painterResource(listOf(dev.calendarquiet.R.drawable.ic_timer, dev.calendarquiet.R.drawable.ic_calendar_outline,
+                            dev.calendarquiet.R.drawable.ic_rules_outline, dev.calendarquiet.R.drawable.ic_clock_outline,
+                            dev.calendarquiet.R.drawable.ic_settings_outline)[index]), contentDescription = name,
+                            modifier = Modifier.size(22.dp)) }, label = { Text(name, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) })
                 }
             }
         }

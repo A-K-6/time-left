@@ -15,12 +15,17 @@ class TimerStore(context: Context) {
         val history = json.optJSONArray("focusFinishedAt") ?: JSONArray()
         TimerState(json.optJSONObject("active")?.toCountdown(), json.optJSONObject("completed")?.toCountdown(),
             List(history.length()) { history.getLong(it) },
-            json.optInt("focusMinutes", 25).coerceIn(1, 180), json.optInt("breakMinutes", 5).coerceIn(1, 180))
+            json.optInt("focusMinutes", 25).coerceIn(1, 180), json.optInt("breakMinutes", 5).coerceIn(1, 180),
+            json.optInt("longBreakMinutes", 15).coerceIn(1, 180),
+            json.optInt("longBreakEvery", 4).coerceIn(1, 12),
+            json.optInt("focusesInCycle", 0).coerceIn(0, 12), json.optLong("revision", 0))
     }.getOrDefault(TimerState())
 
     fun write(state: TimerState) {
         val json = JSONObject().put("focusMinutes", state.focusMinutes).put("breakMinutes", state.breakMinutes)
             .put("focusFinishedAt", JSONArray(state.focusFinishedAt))
+            .put("longBreakMinutes", state.longBreakMinutes).put("longBreakEvery", state.longBreakEvery)
+            .put("focusesInCycle", state.focusesInCycle).put("revision", state.revision)
         state.active?.let { json.put("active", it.toJson()) }
         state.completed?.let { json.put("completed", it.toJson()) }
         check(prefs.edit().putString("state", json.toString()).commit()) { "Could not save your timer." }
@@ -34,9 +39,9 @@ class TimerStore(context: Context) {
     }
 
     private fun Countdown.toJson() = JSONObject().put("id", id).put("kind", kind.name).put("title", title)
-        .put("startedAt", startedAt).put("endsAt", endsAt).put("elapsedDeadline", elapsedDeadline).put("bootCount", bootCount)
+        .put("startedAt", startedAt).put("endsAt", endsAt).put("elapsedDeadline", elapsedDeadline).put("bootCount", bootCount).put("pausedRemaining", pausedRemaining)
 
     private fun JSONObject.toCountdown() = Countdown(getString("id"), TimerKind.valueOf(getString("kind")),
         getString("title"), getLong("startedAt"), getLong("endsAt"),
-        if (isNull("elapsedDeadline")) null else getLong("elapsedDeadline"), optInt("bootCount", -1))
+        if (isNull("elapsedDeadline")) null else getLong("elapsedDeadline"), optInt("bootCount", -1), if (isNull("pausedRemaining")) null else getLong("pausedRemaining"))
 }

@@ -1,4 +1,8 @@
 <resources>
-    <color name="timer_widget_background">#1D2B21</color>
-    <color name="timer_widget_text">#E0ECE0</color>
+    <color name="timer_widget_background">#19271E</color>
+    <color name="timer_widget_text">#EEF2E5</color>
+    <color name="timer_widget_button">#D2E8AF</color>
+    <color name="timer_widget_muted">#B4C2AC</color>
+    <color name="timer_widget_on_button">#203222</color>
+    <color name="timer_widget_secondary">#2B3D2C</color>
 </resources>
