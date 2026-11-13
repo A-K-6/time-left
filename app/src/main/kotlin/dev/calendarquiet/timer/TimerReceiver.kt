@@ -15,7 +15,7 @@ class TimerReceiver : BroadcastReceiver() {
         context.quietApp.scope.launch {
             try {
                 if (intent.hasExtra("revision")) context.quietApp.timers.handleAction(intent.action, intent.getLongExtra("revision", -1))
-                else context.quietApp.timers.refresh()
+                else context.quietApp.timers.refresh(forceAlarm = true, forcePresentation = intent.action != REFRESH)
             } catch (exception: Exception) {
                 Log.e("TimerReceiver", "Could not update timer", exception)
             } finally { pending.finish() }

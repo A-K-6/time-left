@@ -21,6 +21,9 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private var revision by mutableIntStateOf(0)
     private var openTimerRequest by mutableIntStateOf(0)
+    private val clockChanges = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) { revision++ }
+    }
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { revision++; refresh() }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { revision++; refresh() }
 
@@ -42,10 +45,19 @@ class MainActivity : ComponentActivity() {
     }
     companion object { const val OPEN_TIMER = "dev.calendarquiet.OPEN_TIMER" }
 
+    override fun onStart() {
+        super.onStart()
+        registerReceiver(clockChanges, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }, android.content.Context.RECEIVER_NOT_EXPORTED)
+    }
+    override fun onStop() { unregisterReceiver(clockChanges); super.onStop() }
+
     override fun onResume() { super.onResume(); revision++; refresh() }
     private fun refresh() {
         quietApp.scope.launch { quietApp.automation.reconcile() }
-        quietApp.scope.launch { quietApp.timers.refresh() }
+        quietApp.scope.launch { quietApp.timers.refresh(restoreNotification = true) }
     }
 
     private fun requestAccess(kind: String) {

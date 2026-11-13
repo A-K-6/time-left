@@ -54,6 +54,7 @@ internal fun CalendarPage(
     var selectedEvent by remember { mutableStateOf<CalendarEvent?>(null) }
     var timerError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val lifecycle = context.uiLifecycle()
     val timerState by context.quietApp.timers.state.collectAsState()
     val selectedCalendars by context.quietApp.timers.calendarSelection.collectAsState()
     val date = LocalDate.parse(selectedDay)
@@ -65,27 +66,31 @@ internal fun CalendarPage(
     var error by remember { mutableStateOf<String?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(Unit) {
-        while (true) { now = System.currentTimeMillis(); delay(30_000) }
+    LaunchedEffect(lifecycle) {
+        lifecycle.withVisibleUi {
+            while (true) { now = System.currentTimeMillis(); delay(30_000) }
+        }
     }
     LaunchedEffect(month, zone, revision, hasAccess, calendarRevision, selectedCalendars) {
-        events = emptyList()
-        error = null
-        loading = hasAccess
-        if (!hasAccess) return@LaunchedEffect
-        try {
-            delay(200)
-            // Include UTC all-day instances even when the device is across a date boundary.
-            events = withContext(Dispatchers.IO) {
-                context.quietApp.automation.calendars.events(
-                    month.atDay(1).minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
-                    month.plusMonths(1).atDay(1).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), selectedCalendars)
-            }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (exception: Exception) {
-            error = exception.message ?: "Could not load calendar events."
-        } finally { loading = false }
+        lifecycle.withVisibleUi {
+            events = emptyList()
+            error = null
+            loading = hasAccess
+            if (!hasAccess) return@withVisibleUi
+            try {
+                delay(200)
+                // Include UTC all-day instances even when the device is across a date boundary.
+                events = withContext(Dispatchers.IO) {
+                    context.quietApp.automation.calendars.events(
+                        month.atDay(1).minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+                        month.plusMonths(1).atDay(1).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), selectedCalendars)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                error = exception.message ?: "Could not load calendar events."
+            } finally { loading = false }
+        }
     }
     val eventsByDay = remember(events, month, zone) {
         (1..month.lengthOfMonth()).associate { day ->

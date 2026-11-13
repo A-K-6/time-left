@@ -142,3 +142,11 @@ fun formatCountdown(remainingMillis: Long): String {
     return if (seconds >= 3600) String.format(Locale.ROOT, "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
     else String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
 }
+
+// Android 16 changed Chronometer rounding and tick alignment. Correct only its
+// display base; the real completion deadline is never shifted.
+fun countdownChronometerBase(remainingMillis: Long, elapsedNow: Long, modernRounding: Boolean = false): Long =
+    elapsedNow + remainingMillis.coerceAtLeast(0) + if (modernRounding) 998 else 999
+
+fun nextCountdownUpdate(remainingMillis: Long): Long =
+    if (remainingMillis <= 0) 0 else ((remainingMillis - 1) % 1000 + 1)

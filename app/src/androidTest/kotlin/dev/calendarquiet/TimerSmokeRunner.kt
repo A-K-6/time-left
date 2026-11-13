@@ -5,6 +5,12 @@ import android.app.Instrumentation
 import android.app.NotificationManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.View
+import android.widget.Chronometer
+import android.widget.TextView
+import android.widget.FrameLayout
+import dev.calendarquiet.core.countdownChronometerBase
+import dev.calendarquiet.core.formatCountdown
 import dev.calendarquiet.core.Countdown
 import dev.calendarquiet.core.MINUTE
 import dev.calendarquiet.core.TimerKind
@@ -44,6 +50,43 @@ class TimerSmokeRunner : Instrumentation() {
                 check(timers.state.value.active!!.id == first.id)
                 messages.append("PASS: repeated start does not replace active timer\n"); passed++
 
+                val notificationManager = context.getSystemService(NotificationManager::class.java)
+                val originalPostTime = notificationManager.activeNotifications.first { it.id == 700 }.postTime
+                repeat(8) { delay(20); timers.refresh() }
+                check(notificationManager.activeNotifications.first { it.id == 700 }.postTime == originalPostTime) {
+                    "Unchanged refresh reposted the running notification"
+                }
+                messages.append("PASS: unchanged refresh preserves notification instead of republishing surfaces\n"); passed++
+
+                timers.refresh(forceAlarm = true)
+                check(notificationManager.activeNotifications.first { it.id == 700 }.postTime == originalPostTime)
+                delay(20)
+                timers.refresh(forcePresentation = true)
+                check(notificationManager.activeNotifications.first { it.id == 700 }.postTime > originalPostTime)
+                notificationManager.cancel(700)
+                repeat(30) { if (notificationManager.activeNotifications.any { it.id == 700 }) delay(20) }
+                check(notificationManager.activeNotifications.none { it.id == 700 })
+                timers.refresh(restoreNotification = true)
+                repeat(30) { if (notificationManager.activeNotifications.none { it.id == 700 }) delay(20) }
+                check(notificationManager.activeNotifications.any { it.id == 700 })
+                messages.append("PASS: alarm invalidation avoids repaint; explicit surface refresh and notification restoration work\n"); passed++
+
+                val runningNotice = notificationManager.activeNotifications.first { it.id == 700 }.notification
+                runOnMainSync {
+                    val content = runningNotice.contentView.apply(context, FrameLayout(context))
+                    check(content.findViewById<Chronometer>(R.id.notification_countdown).isCountDown)
+                    check(content.findViewById<Chronometer>(R.id.notification_countdown).visibility == View.VISIBLE)
+                    val public = runningNotice.publicVersion.contentView.apply(context, FrameLayout(context))
+                    check(public.findViewById<TextView>(R.id.notification_title).text.toString() == "Time Left")
+                    val rounding = Chronometer(context).apply {
+                        isCountDown = true
+                        base = countdownChronometerBase(1500, SystemClock.elapsedRealtime())
+                    }
+                    check(rounding.text.toString() == "00:02") { "Native countdown rounded down: ${rounding.text}" }
+                    rounding.stop()
+                }
+                messages.append("PASS: running notification has a real countdown; lock-screen content is private; fractional seconds round up\n"); passed++
+
                 val runningRevision = timers.state.value.revision
                 TimerReceiver.action(context, TimerReceiver.PAUSE, runningRevision).send()
                 repeat(30) {
@@ -63,6 +106,11 @@ class TimerSmokeRunner : Instrumentation() {
                 val activeNotification = context.getSystemService(NotificationManager::class.java).activeNotifications.first { it.id == 700 }.notification
                 check(!activeNotification.extras.getBoolean("android.showChronometer"))
                 check(activeNotification.actions.first().title.toString() == "Resume")
+                runOnMainSync {
+                    val content = activeNotification.contentView.apply(context, FrameLayout(context))
+                    check(content.findViewById<Chronometer>(R.id.notification_countdown).visibility == View.GONE)
+                    check(content.findViewById<TextView>(R.id.notification_paused).text.toString() == formatCountdown(left))
+                }
                 messages.append("PASS: paused notification is static and offers Resume\n"); passed++
 
                 timers = TimerCoordinator(context)
@@ -128,7 +176,9 @@ class TimerSmokeRunner : Instrumentation() {
                 check(settled.active == null && settled.focusFinishedAt.size == 1 && settled.focusesInCycle == 1)
                 timers.refresh()
                 check(timers.state.value.focusFinishedAt.size == 1)
-                val finish = context.getSystemService(NotificationManager::class.java).activeNotifications.first { it.id == 701 }.notification
+                // NotificationManager dispatch is asynchronous; wait for the real post.
+                repeat(30) { if (notificationManager.activeNotifications.none { it.id == 701 }) delay(50) }
+                val finish = notificationManager.activeNotifications.first { it.id == 701 }.notification
                 check(finish.actions.single().title.toString() == "Start short break")
                 messages.append("PASS: due timer completes once and finish notification offers next break\n"); passed++
                 timers.clear()

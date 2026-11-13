@@ -52,6 +52,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     val automation = context.quietApp.automation
     val status by automation.status.collectAsState()
     val scope = rememberCoroutineScope()
+    val lifecycle = context.uiLifecycle()
     var page by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(openTimerRequest) { if (openTimerRequest > 0) page = 0 }
     var rules by remember { mutableStateOf(automation.store.rules()) }
@@ -70,31 +71,56 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     val access = remember(revision, status) { readAccess(context) }
 
     LaunchedEffect(revision) {
-        rules = automation.store.rules()
-        enabled = automation.store.enabled
-        withContext(Dispatchers.IO) {
-            val apps = readApps(context)
-            withContext(Dispatchers.Main) { installed = apps }
+        lifecycle.withVisibleUi {
+            rules = automation.store.rules()
+            enabled = automation.store.enabled
         }
     }
-    DisposableEffect(context, access.calendar) {
-        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) { calendarRevision++ }
+    // Package labels are needed only by the rule editor, never by a timer tick or launch.
+    LaunchedEffect(editing != null, revision) {
+        lifecycle.withVisibleUi {
+            if (editing == null) return@withVisibleUi
+            installed = withContext(Dispatchers.IO) { readApps(context) }
         }
-        if (access.calendar) context.contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, observer)
-        onDispose { context.contentResolver.unregisterContentObserver(observer) }
+    }
+    DisposableEffect(context, access.calendar, lifecycle) {
+        var registered = false
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) calendarRevision++
+            }
+        }
+        fun reconcileObserver() {
+            val needed = access.calendar && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+            if (needed && !registered) {
+                context.contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, observer)
+                registered = true
+            } else if (!needed && registered) {
+                context.contentResolver.unregisterContentObserver(observer)
+                registered = false
+            }
+        }
+        val watcher = androidx.lifecycle.LifecycleEventObserver { _, _ -> reconcileObserver() }
+        lifecycle.addObserver(watcher)
+        reconcileObserver()
+        onDispose {
+            lifecycle.removeObserver(watcher)
+            if (registered) context.contentResolver.unregisterContentObserver(observer)
+        }
     }
     LaunchedEffect(revision, calendarRevision, access.calendar) {
-        calendarError = null
-        calendars = emptyList()
-        calendarLoading = access.calendar
-        if (!access.calendar) return@LaunchedEffect
-        try {
-            delay(200)
-            calendars = withContext(Dispatchers.IO) { automation.calendars.calendars() }
-        } catch (exception: CancellationException) { throw exception }
-        catch (_: Exception) { calendarError = "Could not read calendar sources. Tap Refresh to try again." }
-        finally { calendarLoading = false }
+        lifecycle.withVisibleUi {
+            calendarError = null
+            calendars = emptyList()
+            calendarLoading = access.calendar
+            if (!access.calendar) return@withVisibleUi
+            try {
+                delay(200)
+                calendars = withContext(Dispatchers.IO) { automation.calendars.calendars() }
+            } catch (exception: CancellationException) { throw exception }
+            catch (_: Exception) { calendarError = "Could not read calendar sources. Tap Refresh to try again." }
+            finally { calendarLoading = false }
+        }
     }
 
     fun chooseCalendars() { calendarRevision++; choosingCalendars = true }

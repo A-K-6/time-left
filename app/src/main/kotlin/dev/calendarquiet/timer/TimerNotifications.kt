@@ -12,6 +12,9 @@ import android.os.SystemClock
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.provider.Settings
+import android.view.View
+import android.widget.RemoteViews
+import dev.calendarquiet.core.countdownChronometerBase
 import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.MainActivity
 import dev.calendarquiet.R
@@ -33,31 +36,55 @@ class TimerNotifications(private val context: Context) {
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
+    private var runningChannelReady = false
+    fun enabled(): Boolean = allowed()
+    fun hasRunning(): Boolean = manager.activeNotifications.any { it.id == 700 }
+
     private fun allowed(): Boolean = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED && manager.areNotificationsEnabled()
 
     fun running(timer: Countdown, boot: Int, revision: Long) {
         if (!allowed()) return
-        manager.createNotificationChannel(NotificationChannel("timer_running", "Running timer", NotificationManager.IMPORTANCE_LOW))
-        val finish = timer.finishTime(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot)
-        val detail = if (timer.isPaused) "Paused · ${formatCountdown(timer.pausedRemaining!!)} left" else "Ends ${finishLabel(finish)}"
+        if (!runningChannelReady) {
+            manager.createNotificationChannel(NotificationChannel("timer_running", "Running timer", NotificationManager.IMPORTANCE_LOW))
+            runningChannelReady = true
+        }
+        val now = System.currentTimeMillis()
+        val elapsed = SystemClock.elapsedRealtime()
+        val left = timer.remaining(now, elapsed, boot).coerceAtLeast(0)
+        val finish = now + left
+        val phase = when (timer.kind) {
+            TimerKind.FOCUS -> "Focus"; TimerKind.BREAK -> "Short break"; TimerKind.LONG_BREAK -> "Long break"
+            TimerKind.EVENT -> "Event"; TimerKind.FREE_TIME -> "Free time"
+        }
+        val detail = if (timer.isPaused) "Paused · remaining time saved" else "$phase · ends ${finishLabel(finish)}"
+        fun content(layout: Int, redacted: Boolean = false) = RemoteViews(context.packageName, layout).apply {
+            setTextViewText(R.id.notification_title, if (redacted) "Time Left" else timer.title)
+            setTextViewText(R.id.notification_status, if (redacted) { if (timer.isPaused) "Paused" else "Time remaining" } else detail)
+            setViewVisibility(R.id.notification_countdown, if (timer.isPaused) View.GONE else View.VISIBLE)
+            setViewVisibility(R.id.notification_paused, if (timer.isPaused) View.VISIBLE else View.GONE)
+            setBoolean(R.id.notification_countdown, "setCountDown", true)
+            setChronometer(R.id.notification_countdown, countdownChronometerBase(left, elapsed, android.os.Build.VERSION.SDK_INT >= 36), null, !timer.isPaused && left > 0)
+            setTextViewText(R.id.notification_paused, formatCountdown(left))
+        }
         val public = Notification.Builder(context, "timer_running").setSmallIcon(R.drawable.ic_timer)
-            .setContentTitle(if (timer.isPaused) "Timer paused" else "Timer running")
+            .setContentTitle("Time Left").setContentText(if (timer.isPaused) "Paused" else "Time remaining")
+            .setShowWhen(false).setCustomContentView(content(R.layout.timer_notification_compact, true))
+            .setStyle(Notification.DecoratedCustomViewStyle()).build()
         val builder = Notification.Builder(context, "timer_running").setSmallIcon(R.drawable.ic_timer)
-            .setContentTitle(timer.title).setContentText(detail)
+            .setContentTitle(timer.title).setContentText(detail).setShowWhen(false)
+            .setCustomContentView(content(R.layout.timer_notification_compact))
+            .setCustomBigContentView(content(R.layout.timer_notification_expanded))
+            .setStyle(Notification.DecoratedCustomViewStyle())
             .setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_STOPWATCH)
             .setVisibility(Notification.VISIBILITY_PRIVATE).setContentIntent(open())
-        if (!timer.isPaused) {
-            public.setWhen(finish).setUsesChronometer(true).setChronometerCountDown(true)
-            builder.setWhen(finish).setUsesChronometer(true).setChronometerCountDown(true)
-                .setTimeoutAfter((finish - System.currentTimeMillis()).coerceAtLeast(1))
-        } else builder.setShowWhen(false)
+            .setPublicVersion(public)
+        if (!timer.isPaused) builder.setTimeoutAfter(left.coerceAtLeast(1))
         if (timer.canPause) builder.addAction(Notification.Action.Builder(null,
             if (timer.isPaused) "Resume" else "Pause", TimerReceiver.action(context,
                 if (timer.isPaused) TimerReceiver.RESUME else TimerReceiver.PAUSE, revision)).build())
         builder.addAction(Notification.Action.Builder(null, "Stop",
             TimerReceiver.action(context, TimerReceiver.STOP, revision)).build())
-        builder.setPublicVersion(public.build())
         try { manager.notify(700, builder.build()) } catch (_: SecurityException) { /* Access changed while building. */ }
     }
 

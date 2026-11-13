@@ -19,13 +19,20 @@ class TimerCoordinator(private val context: Context) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
     private val notifications = TimerNotifications(context)
     private val mutex = Mutex()
+    private data class AlarmKey(val type: Int, val at: Long, val exact: Boolean)
+    private data class PresentationKey(val state: TimerState, val notificationsEnabled: Boolean, val zone: String, val day: Long)
+    private var alarmInitialized = false
+    private var installedAlarm: AlarmKey? = null
+    private var presented: PresentationKey? = null
     private val mutableState = MutableStateFlow(store.read())
     val state = mutableState.asStateFlow()
     private val mutableCalendarSelection = MutableStateFlow(store.calendarIds())
     val calendarSelection = mutableCalendarSelection.asStateFlow()
 
     fun bootCount(): Int = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
-    suspend fun refresh() = mutex.withLock { refreshLocked() }
+    suspend fun refresh(forcePresentation: Boolean = false, forceAlarm: Boolean = false, restoreNotification: Boolean = false) = mutex.withLock {
+        refreshLocked(forcePresentation, forceAlarm, restoreNotification)
+    }
 
     suspend fun startDuration(kind: TimerKind, minutes: Int, rememberDuration: Boolean = true, title: String? = null) = mutex.withLock {
         refreshLocked()
@@ -122,7 +129,7 @@ class TimerCoordinator(private val context: Context) {
         mutableState.value = next
     }
 
-    private fun refreshLocked() {
+    private fun refreshLocked(forcePresentation: Boolean = false, forceAlarm: Boolean = false, restoreNotification: Boolean = false) {
         val previous = mutableState.value
         val now = System.currentTimeMillis()
         val elapsedNow = SystemClock.elapsedRealtime()
@@ -130,7 +137,7 @@ class TimerCoordinator(private val context: Context) {
         val rebased = previous.copy(active = previous.active?.rebaseWallClock(now, elapsedNow, boot))
         val next = rebased.completeDue(now, elapsedNow, boot)
         if (next != previous) save(next)
-        publish()
+        publish(forcePresentation, forceAlarm, restoreNotification)
         val expired = previous.active
         if (expired != null && next.active == null) {
             val finishedAt = expired.finishTime(now, elapsedNow, boot)
@@ -142,22 +149,39 @@ class TimerCoordinator(private val context: Context) {
         Intent(context, TimerReceiver::class.java).setAction(TimerReceiver.REFRESH),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
-    private fun publish() {
-        val timer = mutableState.value.active
-        val pending = alarmIntent()
-        if (timer == null || timer.isPaused) {
-            alarms.cancel(pending)
-            if (timer == null) notifications.clearRunning() else notifications.running(timer, bootCount(), mutableState.value.revision)
-        } else {
-            val elapsed = timer.usesElapsedClock(bootCount())
-            val type = if (elapsed) AlarmManager.ELAPSED_REALTIME_WAKEUP else AlarmManager.RTC_WAKEUP
-            val at = if (elapsed) timer.elapsedDeadline!! else timer.endsAt
-            try {
-                if (alarms.canScheduleExactAlarms()) alarms.setExactAndAllowWhileIdle(type, at, pending)
-                else alarms.setAndAllowWhileIdle(type, at, pending)
-            } catch (_: SecurityException) { alarms.setAndAllowWhileIdle(type, at, pending) }
-            notifications.running(timer, bootCount(), mutableState.value.revision)
+    private fun publish(forcePresentation: Boolean = false, forceAlarm: Boolean = false, restoreNotification: Boolean = false) {
+        val state = mutableState.value
+        val timer = state.active
+        val boot = bootCount()
+        val desiredAlarm = timer?.takeUnless { it.isPaused }?.let {
+            val elapsed = it.usesElapsedClock(boot)
+            AlarmKey(if (elapsed) AlarmManager.ELAPSED_REALTIME_WAKEUP else AlarmManager.RTC_WAKEUP,
+                if (elapsed) it.elapsedDeadline!! else it.endsAt, alarms.canScheduleExactAlarms())
         }
-        TimerWidget.render(context, mutableState.value, bootCount())
+        // The completion alarm changes only with its deadline/clock/access, or after
+        // Android explicitly invalidates it. UI refreshes do not churn AlarmManager.
+        if (!alarmInitialized || forceAlarm || desiredAlarm != installedAlarm) {
+            val pending = alarmIntent()
+            var effectiveAlarm = desiredAlarm
+            if (desiredAlarm == null) alarms.cancel(pending)
+            else try {
+                if (desiredAlarm.exact) alarms.setExactAndAllowWhileIdle(desiredAlarm.type, desiredAlarm.at, pending)
+                else alarms.setAndAllowWhileIdle(desiredAlarm.type, desiredAlarm.at, pending)
+            } catch (_: SecurityException) {
+                alarms.setAndAllowWhileIdle(desiredAlarm.type, desiredAlarm.at, pending)
+                effectiveAlarm = desiredAlarm.copy(exact = false)
+            }
+            installedAlarm = effectiveAlarm
+            alarmInitialized = true
+        }
+        val zone = java.time.ZoneId.systemDefault()
+        val presentation = PresentationKey(state, notifications.enabled(), zone.id,
+            java.time.LocalDate.now(zone).toEpochDay())
+        if (forcePresentation || presentation != presented ||
+            (restoreNotification && timer != null && presentation.notificationsEnabled && !notifications.hasRunning())) {
+            if (timer == null) notifications.clearRunning() else notifications.running(timer, boot, state.revision)
+            TimerWidget.render(context, state, boot)
+            presented = presentation
+        }
     }
 }

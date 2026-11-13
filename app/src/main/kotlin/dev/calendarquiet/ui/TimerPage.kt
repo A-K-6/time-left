@@ -10,9 +10,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.text.format.DateFormat
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -30,12 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.TextStyle
@@ -46,8 +43,6 @@ import dev.calendarquiet.R
 import kotlin.math.cos
 import kotlin.math.sin
 import dev.calendarquiet.timer.FocusWidget
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import dev.calendarquiet.core.*
 import dev.calendarquiet.quietApp
 import dev.calendarquiet.timer.TimerWidget
@@ -67,10 +62,9 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var elapsed by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val boot = remember { timers.bootCount() }
-    val lifecycle = (context as ComponentActivity).lifecycle
-    var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    val foreground = rememberUiStarted(context)
+    val lifecycle = context.uiLifecycle()
     val focusMinutes = state.focusMinutes.toString()
     val breakMinutes = state.breakMinutes.toString()
     var focusTitle by rememberSaveable { mutableStateOf("") }
@@ -110,43 +104,39 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
         else perform { timers.startDuration(kind, minutes, title = if (kind == TimerKind.FOCUS) focusTitle else null) }
     }
 
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, _ -> foreground = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-    // Only the visible app ticks. Android renders the widget and notification chronometers itself.
-    LaunchedEffect(foreground) {
-        if (!foreground) return@LaunchedEffect
-        while (true) {
-            now = System.currentTimeMillis()
-            elapsed = SystemClock.elapsedRealtime()
-            val active = timers.state.value.active
-            if (active != null && active.remaining(now, elapsed, boot) <= 0) {
-                try { withContext(Dispatchers.IO) { timers.refresh() } }
-                catch (exception: CancellationException) { throw exception }
-                catch (exception: Exception) { error = exception.message ?: "Could not finish the timer." }
+    // Calendar suggestions need minute/event boundaries, not one-second page updates.
+    // The active dial has its own small ticker; paused/idle pages do not tick.
+    LaunchedEffect(events) {
+        lifecycle.withVisibleUi {
+            while (true) {
+                val at = System.currentTimeMillis()
+                now = at
+                val midnight = ZonedDateTime.now().toLocalDate().plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val minute = if (events.isEmpty()) midnight else at + MINUTE - at % MINUTE
+                val boundary = events.asSequence().flatMap { sequenceOf(it.start, it.end) }.filter { it > at }.minOrNull() ?: midnight
+                delay((minOf(midnight, minute, boundary) - at).coerceAtLeast(250))
             }
-            delay(1000)
         }
     }
     LaunchedEffect(revision, calendarAccess, calendarRevision, selected) {
-        events = emptyList()
-        calendarError = null
-        loading = calendarAccess
-        if (!calendarAccess) return@LaunchedEffect
-        try {
-            delay(200)
-            events = withContext(Dispatchers.IO) {
-                val provider = context.quietApp.automation.calendars
-                val from = System.currentTimeMillis()
-                provider.events(from, from + 7 * 24 * HOUR, selected)
-            }
-        } catch (exception: CancellationException) { throw exception }
-        catch (_: Exception) { calendarError = "Could not read your calendar. Tap Refresh to try again." }
-        finally { loading = false }
+        lifecycle.withVisibleUi {
+            events = emptyList()
+            calendarError = null
+            loading = calendarAccess
+            if (!calendarAccess) return@withVisibleUi
+            try {
+                delay(200)
+                events = withContext(Dispatchers.IO) {
+                    val provider = context.quietApp.automation.calendars
+                    val from = System.currentTimeMillis()
+                    provider.events(from, from + 7 * 24 * HOUR, selected)
+                }
+            } catch (exception: CancellationException) { throw exception }
+            catch (_: Exception) { calendarError = "Could not read your calendar. Tap Refresh to try again." }
+            finally { loading = false }
+        }
     }
-    val suggestions = TimerSuggestions.from(events, now, selected)
+    val suggestions = remember(events, now, selected) { TimerSuggestions.from(events, now, selected) }
     val active = state.active
     val canStart = active == null && !busy
 
@@ -196,10 +186,7 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
         }
         item {
             if (active != null) {
-                FocusDial(active.remaining(now, elapsed, boot).coerceAtLeast(0), active.durationMillis,
-                    if (active.isPaused) "PAUSED" else if (active.kind == TimerKind.FOCUS) "STAY WITH IT" else "TAKE YOUR TIME",
-                    if (active.isPaused) "Your time is saved" else "Until ${finishLabel(active.finishTime(now, elapsed, boot))}",
-                    active.kind != TimerKind.FOCUS)
+                ActiveTimerDial(active, boot, lifecycle, !fullScreen) { perform { timers.refresh() } }
             } else {
                 FocusDial(state.minutesFor(chosenKind) * MINUTE, state.minutesFor(chosenKind) * MINUTE,
                     "READY WHEN YOU ARE", "${when (chosenKind) { TimerKind.BREAK -> "Short break"; TimerKind.LONG_BREAK -> "Long break"; else -> "Focus" }} · ${state.minutesFor(chosenKind)} min", chosenKind != TimerKind.FOCUS)
@@ -220,7 +207,8 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
                             Icon(painterResource(R.drawable.ic_expand_outline), "Full screen", Modifier.size(20.dp))
                         }
                     } else {
-                        OutlinedButton(onClick = { confirmStop = active.id }, modifier = Modifier.fillMaxWidth()) { Text("Stop countdown") }
+                        OutlinedButton(onClick = { confirmStop = active.id }, modifier = Modifier.weight(1f)) { Text("Stop countdown") }
+                        IconButton(onClick = { fullScreen = true }) { Icon(painterResource(R.drawable.ic_expand_outline), "Full screen") }
                     }
                 }
                 if (active.canPause) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -301,7 +289,7 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(event.title.ifBlank { "Current event" }, style = MaterialTheme.typography.titleMedium)
                         calendars.firstOrNull { it.id == event.calendarId }?.let { Text(it.description, style = MaterialTheme.typography.bodySmall) }
-                        Text("${formatCountdown(event.end - now)} left · ends ${finishLabel(event.end)}")
+                        Text("${((event.end - now + MINUTE - 1) / MINUTE).coerceAtLeast(0)} min left · ends ${finishLabel(event.end)}")
                         Button(onClick = { perform { timers.startUntil(TimerKind.EVENT, event.title.ifBlank { "Event" }, event.end) } },
                             enabled = canStart) { Text("Count down this event") }
                     }
@@ -312,7 +300,7 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
                 OutlinedCard {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Free until ${finishLabel(freeUntil)}", style = MaterialTheme.typography.titleMedium)
-                        Text("${formatCountdown(freeUntil - now)} before ${suggestions.next?.title?.ifBlank { "your next event" }}")
+                        Text("${((freeUntil - now + MINUTE - 1) / MINUTE).coerceAtLeast(0)} min before ${suggestions.next?.title?.ifBlank { "your next event" }}")
                         Button(onClick = { perform { timers.startUntil(TimerKind.FREE_TIME, "Free time", freeUntil) } }, enabled = canStart) {
                             Text("Count down free time")
                         }
@@ -376,79 +364,88 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
             confirmButton = { TextButton(onClick = { perform { timers.clear(id) }; confirmStop = null }) { Text("Stop timer") } },
             dismissButton = { TextButton(onClick = { confirmStop = null }) { Text("Keep going") } })
     }
-    if (fullScreen && active?.canPause == true) {
-        Dialog(onDismissRequest = { fullScreen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically)) {
-                    val view = LocalView.current
-                    var keepAwake by rememberSaveable { mutableStateOf(false) }
-                    DisposableEffect(view, keepAwake, active.isPaused) {
-                        view.keepScreenOn = keepAwake && !active.isPaused
-                        onDispose { view.keepScreenOn = false }
-                    }
-                    TimerDisplay(active, now, elapsed, boot)
-                    Button(onClick = { perform { timers.pauseOrResume(active.id) } }, enabled = !busy) {
-                        Text(if (active.isPaused) "Resume" else "Pause")
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Keep screen on", Modifier.padding(end = 16.dp))
-                        Switch(checked = keepAwake, onCheckedChange = { keepAwake = it })
-                    }
-                    TextButton(onClick = { fullScreen = false }) { Text("Back to timers") }
-                }
-            }
-        }
-    }
+    if (fullScreen && active != null) CountdownFullScreen(active, boot, foreground, busy, revision,
+        onClose = { fullScreen = false }, onPauseResume = { perform { timers.pauseOrResume(active.id) } },
+        onExtend = { perform { timers.extend(active.id, 1) } }, onStop = { perform { timers.clear(active.id) } },
+        onExpired = { perform { timers.refresh() } })
     if (showSoundSettings) TimerSoundDialog(context, revision, requestAccess) { showSoundSettings = false }
     error?.let { message -> AlertDialog(onDismissRequest = { error = null }, title = { Text("Timer") }, text = { Text(message) },
         confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } }) }
 }
 
 @Composable
-private fun TimerDisplay(timer: Countdown, now: Long, elapsed: Long, boot: Int) {
-    Text(timer.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-    FocusDial(timer.remaining(now, elapsed, boot).coerceAtLeast(0), timer.durationMillis,
-        if (timer.isPaused) "PAUSED" else if (timer.kind == TimerKind.FOCUS) "STAY WITH IT" else "TAKE YOUR TIME",
-        if (timer.isPaused) "Your time is saved" else "Until ${finishLabel(timer.finishTime(now, elapsed, boot))}", timer.kind != TimerKind.FOCUS)
+private fun ActiveTimerDial(timer: Countdown, boot: Int, lifecycle: androidx.lifecycle.Lifecycle, visible: Boolean, onExpired: () -> Unit) {
+    val left = remember(timer) { mutableLongStateOf(timer.remaining(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot).coerceAtLeast(0)) }
+    val expired by rememberUpdatedState(onExpired)
+    LaunchedEffect(timer, visible) {
+        if (!visible || timer.isPaused) return@LaunchedEffect
+        lifecycle.withVisibleUi {
+            while (true) {
+                left.longValue = timer.remaining(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot).coerceAtLeast(0)
+                if (left.longValue == 0L) { expired(); break }
+                delay(nextCountdownUpdate(left.longValue))
+            }
+        }
+    }
+    FocusDial({ left.longValue }, timer.durationMillis, if (timer.isPaused) "PAUSED" else "TIME REMAINING",
+        if (timer.isPaused) "Your time is saved" else "Until ${finishLabel(timer.finishTime(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot))}",
+        timer.kind != TimerKind.FOCUS)
 }
 
 @Composable
-private fun FocusDial(left: Long, total: Long, label: String, caption: String, rest: Boolean) {
+private fun FocusDial(left: Long, total: Long, label: String, caption: String, rest: Boolean) =
+    FocusDial({ left }, total, label, caption, rest)
+
+@Composable
+private fun FocusDial(left: () -> Long, total: Long, label: String, caption: String, rest: Boolean) {
     val ink = MaterialTheme.colorScheme.onSurface
     val accent = if (rest) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
     val track = MaterialTheme.colorScheme.outlineVariant
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.sizeIn(maxWidth = 224.dp).fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().drawWithCache {
                 val center = Offset(size.width / 2, size.height / 2)
                 val radius = size.minDimension / 2 - 14.dp.toPx()
-                repeat(48) { i ->
-                    val angle = (i * 7.5 - 90) * Math.PI / 180
-                    val outer = radius + 11.dp.toPx()
-                    val inner = outer - (if (i % 4 == 0) 4.dp.toPx() else 2.dp.toPx())
-                    drawLine(track, Offset(center.x + cos(angle).toFloat() * inner, center.y + sin(angle).toFloat() * inner),
-                        Offset(center.x + cos(angle).toFloat() * outer, center.y + sin(angle).toFloat() * outer), 1.dp.toPx())
+                val ticks = Path().apply {
+                    repeat(48) { i ->
+                        val angle = (i * 7.5 - 90) * Math.PI / 180
+                        val outer = radius + 11.dp.toPx()
+                        val inner = outer - (if (i % 4 == 0) 4.dp.toPx() else 2.dp.toPx())
+                        moveTo(center.x + cos(angle).toFloat() * inner, center.y + sin(angle).toFloat() * inner)
+                        lineTo(center.x + cos(angle).toFloat() * outer, center.y + sin(angle).toFloat() * outer)
+                    }
                 }
-                drawCircle(track, radius, center, style = Stroke(2.dp.toPx()))
-                val fraction = (left.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)
-                drawArc(accent, -90f, 360f * fraction, false,
-                    topLeft = Offset(center.x - radius, center.y - radius), size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-                    style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
-                val angle = (fraction * 360 - 90) * Math.PI / 180
-                drawCircle(accent, 5.dp.toPx(), Offset(center.x + cos(angle).toFloat() * radius, center.y + sin(angle).toFloat() * radius))
-            }
+                val tickStroke = Stroke(1.dp.toPx())
+                val trackStroke = Stroke(2.dp.toPx())
+                val progressStroke = Stroke(3.dp.toPx(), cap = StrokeCap.Round)
+                onDrawBehind {
+                    drawPath(ticks, track, style = tickStroke)
+                    drawCircle(track, radius, center, style = trackStroke)
+                    // The rapidly changing value is read in drawing, not by the page or dial layout.
+                    val fraction = (left().toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    drawArc(accent, -90f, 360f * fraction, false,
+                        topLeft = Offset(center.x - radius, center.y - radius), size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                        style = progressStroke)
+                    val angle = (fraction * 360 - 90) * Math.PI / 180
+                    drawCircle(accent, 5.dp.toPx(), Offset(center.x + cos(angle).toFloat() * radius, center.y + sin(angle).toFloat() * radius))
+                }
+            })
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val clock = formatCountdown(left)
-                Text(clock, color = ink, style = TextStyle(fontSize = if (clock.length > 5) 44.sp else 64.sp,
-                    fontWeight = FontWeight.Light, letterSpacing = (-2.5).sp, fontFeatureSettings = "tnum"))
+                CountdownDigits(left, ink)
                 Text(label, color = muted, style = MaterialTheme.typography.labelSmall, letterSpacing = 1.5.sp)
             }
         }
         Spacer(Modifier.height(10.dp))
         Text(caption, style = MaterialTheme.typography.bodySmall, color = muted)
     }
+}
+
+@Composable
+private fun CountdownDigits(left: () -> Long, ink: androidx.compose.ui.graphics.Color) {
+    val clock = formatCountdown(left())
+    Text(clock, color = ink, style = TextStyle(fontSize = if (clock.length > 5) 44.sp else 64.sp,
+        fontWeight = FontWeight.Light, letterSpacing = (-2.5).sp, fontFeatureSettings = "tnum"))
 }
 
 @Composable

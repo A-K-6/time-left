@@ -16,6 +16,7 @@ import dev.calendarquiet.R
 import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.core.TimerState
 import dev.calendarquiet.core.formatCountdown
+import dev.calendarquiet.core.countdownChronometerBase
 import dev.calendarquiet.quietApp
 import kotlinx.coroutines.launch
 
@@ -23,7 +24,7 @@ open class TimerWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val pending = goAsync()
         context.quietApp.scope.launch {
-            try { context.quietApp.timers.refresh() }
+            try { context.quietApp.timers.refresh(forcePresentation = true) }
             finally { pending.finish() }
         }
     }
@@ -68,7 +69,7 @@ open class TimerWidget : AppWidgetProvider() {
             views.setViewVisibility(R.id.widget_idle, if (running) View.GONE else View.VISIBLE)
             val left = timer?.remaining(now, SystemClock.elapsedRealtime(), boot)?.coerceAtLeast(0) ?: 0
             views.setBoolean(R.id.widget_countdown, "setCountDown", true)
-            views.setChronometer(R.id.widget_countdown, SystemClock.elapsedRealtime() + left, null, running && left > 0)
+            views.setChronometer(R.id.widget_countdown, countdownChronometerBase(left, SystemClock.elapsedRealtime(), android.os.Build.VERSION.SDK_INT >= 36), null, running && left > 0)
             if (timer != null) {
                 views.setTextViewText(R.id.widget_idle, formatCountdown(left))
                 views.setTextViewText(R.id.widget_detail, if (timer.isPaused) "PAUSED · your time is saved" else "Ends ${finishLabel(now + left)}")
