@@ -50,6 +50,8 @@ Requirements: JDK 17, Android SDK platform 36 and Build Tools 35.0.0. Android St
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Release shrinking is enabled; release signing is intentionally left for the owner's signing configuration. The local timer preview is `artifacts/time-left-preview.apk`, an optimized release signed with the development debug key for device testing. It is not a production-signed release.
 
+v0.5.0 adds bounded calendar snapshots for smoother tab switching, retains visible lists during refresh, and avoids repeated paused-automation cleanup. Fresh data is required before starting calendar-derived timers after invalidation. See [startup and interaction validation](docs/startup-smoothness-validation.md) for measured frame deadlines, CPU, allocations, memory and limits.
+
 v0.4.0 improves countdown presentation and reduces unnecessary work. See [performance and countdown validation](docs/timer-performance-validation.md) for emulator CPU/frame samples, lifecycle checks and their limits. v0.3.0 added native Pomodoro controls and widgets; its [validation](docs/pomodoro-widgets-validation.md) remains historical, along with the earlier [timer-base](docs/timer-base-validation.md) and [day-view/sound](docs/day-view-sound-validation.md) reports. Physical OEM and battery measurements remain unverified.
 
 ## Optional quiet-rule setup

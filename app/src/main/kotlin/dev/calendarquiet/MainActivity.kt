@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
     private var revision by mutableIntStateOf(0)
     private var openTimerRequest by mutableIntStateOf(0)
     private val clockChanges = object : android.content.BroadcastReceiver() {
-        override fun onReceive(context: android.content.Context, intent: Intent) { revision++ }
+        override fun onReceive(context: android.content.Context, intent: Intent) { quietApp.uiCalendars.invalidate(); revision++ }
     }
     private val calendarPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { revision++; refresh() }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { revision++; refresh() }
@@ -46,17 +46,26 @@ class MainActivity : ComponentActivity() {
     companion object { const val OPEN_TIMER = "dev.calendarquiet.OPEN_TIMER" }
 
     override fun onStart() {
+        // No background observer is kept alive. Always refresh after leaving the app,
+        // including edits/sync changes made while it was stopped.
+        quietApp.uiCalendars.invalidate()
         super.onStart()
         registerReceiver(clockChanges, android.content.IntentFilter().apply {
             addAction(Intent.ACTION_TIME_CHANGED)
             addAction(Intent.ACTION_TIMEZONE_CHANGED)
         }, android.content.Context.RECEIVER_NOT_EXPORTED)
     }
-    override fun onStop() { unregisterReceiver(clockChanges); super.onStop() }
+    override fun onStop() {
+        unregisterReceiver(clockChanges)
+        super.onStop()
+        // Returning always reloads, so retaining extra month windows while hidden
+        // provides no benefit. It also invalidates any read finishing after Stop.
+        quietApp.uiCalendars.invalidate()
+    }
 
     override fun onResume() { super.onResume(); revision++; refresh() }
     private fun refresh() {
-        quietApp.scope.launch { quietApp.automation.reconcile() }
+        quietApp.scope.launch { quietApp.automation.reconcile(fromUi = true) }
         quietApp.scope.launch { quietApp.timers.refresh(restoreNotification = true) }
     }
 

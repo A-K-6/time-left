@@ -18,6 +18,7 @@ import dev.calendarquiet.core.TimerState
 import dev.calendarquiet.timer.TimerCoordinator
 import dev.calendarquiet.timer.TimerReceiver
 import dev.calendarquiet.timer.TimerStore
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
@@ -182,6 +183,38 @@ class TimerSmokeRunner : Instrumentation() {
                 check(finish.actions.single().title.toString() == "Start short break")
                 messages.append("PASS: due timer completes once and finish notification offers next break\n"); passed++
                 timers.clear()
+                val provider = dev.calendarquiet.data.DeviceCalendars(context)
+                val uiCalendars = dev.calendarquiet.data.UiCalendars(provider)
+                val window = dev.calendarquiet.core.CalendarWindow(now, now + 7 * 24 * dev.calendarquiet.core.HOUR, null)
+                val beforeSources = dev.calendarquiet.data.DeviceCalendars.sourceReads.get()
+                val beforeEvents = dev.calendarquiet.data.DeviceCalendars.eventReads.get()
+                kotlinx.coroutines.coroutineScope {
+                    val a = async { uiCalendars.sources() }
+                    val b = async { uiCalendars.events(window) }
+                    val c = async { uiCalendars.events(window) }
+                    a.await(); check(b.await() == c.await())
+                }
+                check(dev.calendarquiet.data.DeviceCalendars.sourceReads.get() == beforeSources + 1)
+                val expectedQueries = if (uiCalendars.peekSources().orEmpty().any { it.includedByDefault }) 1 else 0
+                check(dev.calendarquiet.data.DeviceCalendars.eventReads.get() == beforeEvents + expectedQueries)
+                val readsAfterFirst = dev.calendarquiet.data.DeviceCalendars.eventReads.get()
+                check(uiCalendars.events(window.copy(selectedIds = emptySet())).isEmpty())
+                check(dev.calendarquiet.data.DeviceCalendars.eventReads.get() == readsAfterFirst)
+                uiCalendars.invalidate()
+                check(uiCalendars.peekSources() == null && uiCalendars.peekEvents(window) == null)
+                uiCalendars.events(window)
+                check(dev.calendarquiet.data.DeviceCalendars.sourceReads.get() == beforeSources + 2)
+                messages.append("PASS: UI calendar reads coalesce, reuse sources, preserve empty selection and reload after invalidation\n"); passed++
+
+                val automation = context.quietApp.automation
+                check(!automation.store.enabled) { "Run smoke checks with optional quiet automation paused" }
+                automation.reconcile()
+                val pausedStatus = automation.status.value
+                repeat(4) { delay(20); automation.reconcile(fromUi = true) }
+                check(automation.status.value === pausedStatus)
+                delay(20); automation.reconcile()
+                check(automation.status.value.lastRefresh > pausedStatus.lastRefresh)
+                messages.append("PASS: paused UI resumes avoid repeated effects; explicit system reconciliation still runs\n"); passed++
             }
         } catch (exception: Throwable) {
             failure = exception

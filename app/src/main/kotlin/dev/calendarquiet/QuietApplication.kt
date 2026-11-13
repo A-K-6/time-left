@@ -16,6 +16,7 @@ class QuietApplication : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val automation by lazy { Automation(this) }
     val timers by lazy { dev.calendarquiet.timer.TimerCoordinator(this) }
+    val uiCalendars by lazy { dev.calendarquiet.data.UiCalendars(dev.calendarquiet.data.DeviceCalendars(this)) }
     override fun onCreate() {
         super.onCreate()
         scope.launch { timers.refresh() }

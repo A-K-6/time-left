@@ -30,8 +30,13 @@ class Automation(private val context: Context) {
     private val mutex = Mutex()
     private val mutableStatus = MutableStateFlow(AutomationStatus())
     val status = mutableStatus.asStateFlow()
+    private var pausedSettled = false
 
-    suspend fun reconcile() = mutex.withLock {
+    suspend fun reconcile(fromUi: Boolean = false) = mutex.withLock {
+        // Pausing is still settled on process start, explicit changes and system
+        // broadcasts. Reopening an already settled paused UI has no effects to redo.
+        if (fromUi && pausedSettled && !store.enabled) return@withLock
+        pausedSettled = false
         mutableStatus.value = mutableStatus.value.copy(loading = true)
         val now = System.currentTimeMillis()
         try {
@@ -41,6 +46,7 @@ class Automation(private val context: Context) {
                 sounds.apply(SoundMode.UNCHANGED, 0, now)
                 mutableStatus.value = AutomationStatus(lastRefresh = now,
                     message = if (store.enabled) "Allow calendar access to start automation." else "Automation is paused.")
+                pausedSettled = !store.enabled
                 return@withLock
             }
             val sessions = RuleEngine.sessions(store.rules(), calendars.events(now))

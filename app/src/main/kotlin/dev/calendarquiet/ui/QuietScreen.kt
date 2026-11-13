@@ -37,7 +37,6 @@ import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.quietApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -50,6 +49,7 @@ private data class Access(val calendar: Boolean, val sound: Boolean, val reminde
 @Composable
 fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit, openTimerRequest: Int = 0) {
     val automation = context.quietApp.automation
+    val calendarCache = context.quietApp.uiCalendars
     val status by automation.status.collectAsState()
     val scope = rememberCoroutineScope()
     val lifecycle = context.uiLifecycle()
@@ -58,7 +58,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     var rules by remember { mutableStateOf(automation.store.rules()) }
     var enabled by remember { mutableStateOf(automation.store.enabled) }
     var editing by remember { mutableStateOf<Rule?>(null) }
-    var calendars by remember { mutableStateOf<List<CalendarSource>>(emptyList()) }
+    var calendars by remember { mutableStateOf(calendarCache.peekSources().orEmpty()) }
     var calendarRevision by remember { mutableIntStateOf(0) }
     var choosingCalendars by rememberSaveable { mutableStateOf(false) }
     var calendarLoading by remember { mutableStateOf(false) }
@@ -87,7 +87,10 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         var registered = false
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
-                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) calendarRevision++
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+                    calendarCache.invalidate()
+                    calendarRevision++
+                }
             }
         }
         fun reconcileObserver() {
@@ -111,19 +114,21 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     LaunchedEffect(revision, calendarRevision, access.calendar) {
         lifecycle.withVisibleUi {
             calendarError = null
-            calendars = emptyList()
-            calendarLoading = access.calendar
-            if (!access.calendar) return@withVisibleUi
+            if (!access.calendar) { calendars = emptyList(); calendarLoading = false; return@withVisibleUi }
+            val cached = calendarCache.peekSources()
+            if (cached != null) calendars = cached
+            calendarLoading = cached == null
             try {
-                delay(200)
-                calendars = withContext(Dispatchers.IO) { automation.calendars.calendars() }
+                if (cached == null) withFrameNanos { }
+                calendars = calendarCache.sources()
             } catch (exception: CancellationException) { throw exception }
             catch (_: Exception) { calendarError = "Could not read calendar sources. Tap Refresh to try again." }
-            finally { calendarLoading = false }
+            calendarLoading = false
         }
     }
 
-    fun chooseCalendars() { calendarRevision++; choosingCalendars = true }
+    fun chooseCalendars() { choosingCalendars = true }
+    fun refreshCalendars() { calendarCache.invalidate(); calendarRevision++ }
 
     fun editRules(transform: (List<Rule>) -> List<Rule>, close: Boolean = false) {
         busy = true
@@ -179,7 +184,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
             }
         } else when (page) {
             0 -> TimerPage(context, revision, calendarRevision, calendars, Modifier.padding(padding), requestAccess,
-                onChooseCalendars = ::chooseCalendars, onRefreshCalendars = { calendarRevision++ })
+                onChooseCalendars = ::chooseCalendars, onRefreshCalendars = ::refreshCalendars)
             2 -> RulesPage(rules, enabled, status, access, busy, Modifier.padding(padding),
                 onEnabled = { value ->
                     if (value && !access.calendar) requestAccess("calendar")
@@ -202,7 +207,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
             1 -> CalendarPage(context, revision, calendarRevision, rules, enabled, status, access.calendar,
                 access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
                 onEditRule = { editing = it }, onOpenTimer = { page = 0 },
-                onChooseCalendars = ::chooseCalendars, onRefreshCalendars = { calendarRevision++ })
+                onChooseCalendars = ::chooseCalendars, onRefreshCalendars = ::refreshCalendars)
             else -> SetupPage(access, calendars, calendarLoading, calendarError, Modifier.padding(padding), requestAccess, ::chooseCalendars)
         }
     }
@@ -215,7 +220,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                 catch (_: Exception) { error = "Could not save calendar selection." }
                 finally { calendarSaving = false }
             }
-        }, onReload = { calendarRevision++ }, onSyncSettings = { requestAccess("calendar_sync") },
+        }, onReload = ::refreshCalendars, onSyncSettings = { requestAccess("calendar_sync") },
         onDismiss = { choosingCalendars = false })
     error?.let { message -> AlertDialog(onDismissRequest = { error = null }, title = { Text("Could not finish") },
         text = { Text(message) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } }) }

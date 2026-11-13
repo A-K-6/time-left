@@ -8,11 +8,12 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "dev.calendarquiet"
-        testInstrumentationRunner = "dev.calendarquiet.TimerSmokeRunner"
+        testInstrumentationRunner = if (providers.gradleProperty("performanceTests").orNull == "true")
+            "dev.calendarquiet.PerformanceRunner" else "dev.calendarquiet.TimerSmokeRunner"
         minSdk = 33
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.4.0"
+        versionCode = 8
+        versionName = "0.5.0"
     }
     buildFeatures { compose = true }
     compileOptions {

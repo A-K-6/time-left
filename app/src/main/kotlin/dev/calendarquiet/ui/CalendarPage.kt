@@ -61,8 +61,13 @@ internal fun CalendarPage(
     val month = YearMonth.from(date)
     val zone = ZoneId.systemDefault()
     val locale = Locale.getDefault()
-    var events by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
+    val calendarCache = context.quietApp.uiCalendars
+    val calendarWindow = remember(month, zone, selectedCalendars) { dev.calendarquiet.core.CalendarWindow(
+        month.atDay(1).minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+        month.plusMonths(1).atDay(1).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), selectedCalendars?.toSet()) }
+    var events by remember(calendarWindow) { mutableStateOf(calendarCache.peekEvents(calendarWindow).orEmpty()) }
+    var loading by remember(calendarWindow, hasAccess) { mutableStateOf(hasAccess && calendarCache.peekEvents(calendarWindow) == null) }
+    androidx.activity.compose.ReportDrawnWhen { !loading }
     var error by remember { mutableStateOf<String?>(null) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -71,25 +76,22 @@ internal fun CalendarPage(
             while (true) { now = System.currentTimeMillis(); delay(30_000) }
         }
     }
-    LaunchedEffect(month, zone, revision, hasAccess, calendarRevision, selectedCalendars) {
+    LaunchedEffect(calendarWindow, revision, hasAccess, calendarRevision) {
         lifecycle.withVisibleUi {
-            events = emptyList()
             error = null
-            loading = hasAccess
-            if (!hasAccess) return@withVisibleUi
+            if (!hasAccess) { events = emptyList(); loading = false; return@withVisibleUi }
+            val cached = calendarCache.peekEvents(calendarWindow)
+            if (cached != null) events = cached
+            loading = cached == null
             try {
-                delay(200)
-                // Include UTC all-day instances even when the device is across a date boundary.
-                events = withContext(Dispatchers.IO) {
-                    context.quietApp.automation.calendars.events(
-                        month.atDay(1).minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
-                        month.plusMonths(1).atDay(1).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), selectedCalendars)
-                }
+                if (cached == null) withFrameNanos { }
+                events = calendarCache.events(calendarWindow)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
                 error = exception.message ?: "Could not load calendar events."
-            } finally { loading = false }
+            }
+            loading = false
         }
     }
     val eventsByDay = remember(events, month, zone) {
@@ -155,7 +157,7 @@ internal fun CalendarPage(
         }
     }
     selectedEvent?.let { event ->
-        val canCountDown = !event.allDay && !event.declined && event.start <= now && event.end > now
+        val canCountDown = !loading && error == null && event in events && !event.allDay && !event.declined && event.start <= now && event.end > now
         AlertDialog(onDismissRequest = { selectedEvent = null }, title = { Text("Event details") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {

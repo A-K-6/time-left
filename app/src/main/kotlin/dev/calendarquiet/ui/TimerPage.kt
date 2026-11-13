@@ -58,6 +58,7 @@ import java.time.ZonedDateTime
 internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, calendars: List<CalendarSource>,
     modifier: Modifier, requestAccess: (String) -> Unit, onChooseCalendars: () -> Unit, onRefreshCalendars: () -> Unit) {
     val timers = context.quietApp.timers
+    val calendarCache = context.quietApp.uiCalendars
     val state by timers.state.collectAsState()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -76,10 +77,8 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var calendarError by remember { mutableStateOf<String?>(null) }
-    var events by remember { mutableStateOf<List<CalendarEvent>>(emptyList()) }
     val selected by timers.calendarSelection.collectAsState()
     var showSoundSettings by rememberSaveable { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
     val calendarAccess = remember(revision) {
         context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
     }
@@ -88,6 +87,14 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
             context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
     }
     val exactAccess = remember(revision) { context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms() }
+    val zone = java.time.ZoneId.systemDefault()
+    val date = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val calendarWindow = remember(date, zone, selected) { CalendarWindow(
+        date.atStartOfDay(zone).toInstant().toEpochMilli(),
+        date.plusDays(8).atStartOfDay(zone).toInstant().toEpochMilli(), selected?.toSet()) }
+    var events by remember(calendarWindow) { mutableStateOf(calendarCache.peekEvents(calendarWindow).orEmpty()) }
+    var loading by remember(calendarWindow, calendarAccess) { mutableStateOf(calendarAccess && calendarCache.peekEvents(calendarWindow) == null) }
+    androidx.activity.compose.ReportDrawnWhen { !loading }
 
     fun perform(action: suspend () -> Unit) {
         scope.launch {
@@ -118,25 +125,25 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
             }
         }
     }
-    LaunchedEffect(revision, calendarAccess, calendarRevision, selected) {
+    LaunchedEffect(revision, calendarAccess, calendarRevision, calendarWindow) {
         lifecycle.withVisibleUi {
-            events = emptyList()
             calendarError = null
-            loading = calendarAccess
-            if (!calendarAccess) return@withVisibleUi
+            if (!calendarAccess) { events = emptyList(); loading = false; return@withVisibleUi }
+            val cached = calendarCache.peekEvents(calendarWindow)
+            if (cached != null) events = cached
+            loading = cached == null
             try {
-                delay(200)
-                events = withContext(Dispatchers.IO) {
-                    val provider = context.quietApp.automation.calendars
-                    val from = System.currentTimeMillis()
-                    provider.events(from, from + 7 * 24 * HOUR, selected)
-                }
+                if (cached == null) withFrameNanos { }
+                events = calendarCache.events(calendarWindow)
             } catch (exception: CancellationException) { throw exception }
             catch (_: Exception) { calendarError = "Could not read your calendar. Tap Refresh to try again." }
-            finally { loading = false }
+            // Cancelled reads must not clear a newer request's loading state.
+            loading = false
         }
     }
-    val suggestions = remember(events, now, selected) { TimerSuggestions.from(events, now, selected) }
+    val suggestions = remember(events, now, selected) {
+        TimerSuggestions.from(events.filter { it.end > now && it.start < now + 7 * 24 * HOUR }, now, selected)
+    }
     val active = state.active
     val canStart = active == null && !busy
 
@@ -291,22 +298,22 @@ internal fun TimerPage(context: Context, revision: Int, calendarRevision: Int, c
                         calendars.firstOrNull { it.id == event.calendarId }?.let { Text(it.description, style = MaterialTheme.typography.bodySmall) }
                         Text("${((event.end - now + MINUTE - 1) / MINUTE).coerceAtLeast(0)} min left · ends ${finishLabel(event.end)}")
                         Button(onClick = { perform { timers.startUntil(TimerKind.EVENT, event.title.ifBlank { "Event" }, event.end) } },
-                            enabled = canStart) { Text("Count down this event") }
+                            enabled = canStart && !loading && calendarError == null) { Text("Count down this event") }
                     }
                 }
             }
             val freeUntil = suggestions.freeUntil
-            if (freeUntil != null && !loading && calendarError == null) item {
+            if (freeUntil != null) item {
                 OutlinedCard {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Free until ${finishLabel(freeUntil)}", style = MaterialTheme.typography.titleMedium)
                         Text("${((freeUntil - now + MINUTE - 1) / MINUTE).coerceAtLeast(0)} min before ${suggestions.next?.title?.ifBlank { "your next event" }}")
-                        Button(onClick = { perform { timers.startUntil(TimerKind.FREE_TIME, "Free time", freeUntil) } }, enabled = canStart) {
+                        Button(onClick = { perform { timers.startUntil(TimerKind.FREE_TIME, "Free time", freeUntil) } }, enabled = canStart && !loading && calendarError == null) {
                             Text("Count down free time")
                         }
                         val fit = ((freeUntil - now) / MINUTE).toInt()
                         if (fit in 1 until (focusMinutes.toIntOrNull() ?: 25)) {
-                            TextButton(onClick = { perform { timers.startDuration(TimerKind.FOCUS, fit, rememberDuration = false) } }, enabled = canStart) { Text("Focus for $fit minutes instead") }
+                            TextButton(onClick = { perform { timers.startDuration(TimerKind.FOCUS, fit, rememberDuration = false) } }, enabled = canStart && !loading && calendarError == null) { Text("Focus for $fit minutes instead") }
                         }
                     }
                 }

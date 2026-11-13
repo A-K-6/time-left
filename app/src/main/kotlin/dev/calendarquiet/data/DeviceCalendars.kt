@@ -15,6 +15,10 @@ class DeviceCalendars(private val context: Context) {
 
     fun calendars(): List<CalendarSource> {
         if (!hasPermission()) return emptyList()
+        return measuredRead("TimeLeft.CalendarSources", sourceReads) { readSources() }
+    }
+
+    private fun readSources(): List<CalendarSource> {
         val columns = arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
             CalendarContract.Calendars.ACCOUNT_NAME, CalendarContract.Calendars.ACCOUNT_TYPE,
             CalendarContract.Calendars.VISIBLE, CalendarContract.Calendars.SYNC_EVENTS)
@@ -29,9 +33,10 @@ class DeviceCalendars(private val context: Context) {
 
     fun events(now: Long): List<CalendarEvent> = events(now - 24 * HOUR, now + 7 * 24 * HOUR).filterNot { it.declined }
 
-    fun events(from: Long, until: Long, selectedIds: Set<Long>? = null): List<CalendarEvent> {
+    fun events(from: Long, until: Long, selectedIds: Set<Long>? = null,
+        sources: List<CalendarSource>? = null): List<CalendarEvent> {
         if (!hasPermission()) return emptyList()
-        val ids = selectCalendarSources(calendars(), selectedIds).map { it.id }.toSet()
+        val ids = selectCalendarSources(sources ?: calendars(), selectedIds).map { it.id }.toSet()
         if (ids.isEmpty()) return emptyList()
         val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(builder, from)
@@ -41,7 +46,7 @@ class DeviceCalendars(private val context: Context) {
             CalendarContract.Instances.BEGIN, CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY,
             CalendarContract.Events.SELF_ATTENDEE_STATUS, CalendarContract.Events.AVAILABILITY, CalendarContract.Events.DISPLAY_COLOR)
         // Instances expands recurrence and respects moved/deleted occurrence exceptions.
-        return buildList {
+        return measuredRead("TimeLeft.CalendarEvents", eventReads) { buildList {
             context.contentResolver.query(builder.build(), columns,
                 "(${CalendarContract.Events.STATUS} IS NULL OR ${CalendarContract.Events.STATUS} != ?) AND " +
                     "${CalendarContract.Instances.CALENDAR_ID} IN (${ids.joinToString { "?" }})",
@@ -56,6 +61,16 @@ class DeviceCalendars(private val context: Context) {
                         if (cursor.isNull(9)) null else cursor.getInt(9)))
                 }
             }
+        } }
+    }
+
+    companion object {
+        // Aggregate counts only: no calendar/account/event contents are recorded.
+        val sourceReads = java.util.concurrent.atomic.AtomicLong()
+        val eventReads = java.util.concurrent.atomic.AtomicLong()
+        private inline fun <T> measuredRead(name: String, counter: java.util.concurrent.atomic.AtomicLong, block: () -> T): T {
+            android.os.Trace.beginSection(name)
+            try { counter.incrementAndGet(); return block() } finally { android.os.Trace.endSection() }
         }
     }
 }
