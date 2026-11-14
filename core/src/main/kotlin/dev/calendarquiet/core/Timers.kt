@@ -92,6 +92,7 @@ data class TimerState(
     val longBreakEvery: Int = 4,
     val focusesInCycle: Int = 0,
     val revision: Long = 0,
+    val progress: FocusProgress? = null,
 ) {
     val nextBreakKind: TimerKind get() = if (focusesInCycle >= longBreakEvery) TimerKind.LONG_BREAK else TimerKind.BREAK
     val nextSessionKind: TimerKind get() = if (completed?.kind == TimerKind.FOCUS) nextBreakKind else TimerKind.FOCUS
@@ -101,11 +102,13 @@ data class TimerState(
         else -> breakMinutes
     }
 
-    fun completeDue(now: Long, elapsedNow: Long, boot: Int): TimerState {
+    fun completeDue(now: Long, elapsedNow: Long, boot: Int, zone: ZoneId = ZoneId.systemDefault()): TimerState {
         val timer = active ?: return this
         if (timer.isPaused || timer.remaining(now, elapsedNow, boot) > 0) return this
         val finishedAt = timer.finishTime(now, elapsedNow, boot)
         return copy(active = null, completed = timer,
+            progress = if (timer.kind == TimerKind.FOCUS)
+                (progress ?: FocusProgress.importHistory(focusFinishedAt, now, zone)).record(finishedAt, zone) else progress,
             focusesInCycle = when (timer.kind) {
                 TimerKind.FOCUS -> if (focusesInCycle >= longBreakEvery) 1 else focusesInCycle + 1
                 TimerKind.LONG_BREAK -> 0
@@ -118,6 +121,7 @@ data class TimerState(
 
     fun completedToday(now: Long, zone: ZoneId = ZoneId.systemDefault()): Int {
         val date = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        progress?.let { return it.days[date] ?: 0 }
         return focusFinishedAt.count { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() == date }
     }
 }

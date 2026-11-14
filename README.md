@@ -26,6 +26,12 @@ Open **Calendar → Change → Use Google calendars** to use your Google calenda
 
 This version implements standard Android notifications and widgets. The ordinary status bar shows the app's timer icon; a numeric status chip, Xiaomi HyperIsland integration, and always-on-display behavior are not claimed. Physical Xiaomi/Samsung behavior still needs device validation.
 
+## Progress
+
+The **Progress** tab turns completed focus sessions into a year heatmap, a daily target, XP, levels, streaks and six milestones. Tap a heatmap cell or **Choose day** to inspect a date. Set a target of 1–12 completed focuses per day. Each completed Focus earns **10 XP**, regardless of duration; each 100 XP advances a level. Breaks, calendar/free-time timers and unfinished sessions earn none. A streak needs at least one completed focus per local day; yesterday's streak stays available throughout today.
+
+Rewards stay on this device and survive timer-history pruning. Existing saved completions are imported once; older unavailable history is marked incomplete. Daily dates are anchored when completion is recorded. Changing the daily target changes shading and target progress, while keeping earned XP and streaks. See [progress validation](docs/progress-validation.md). Quiet Schedule is available under **Rules → View quiet schedule**.
+
 ## Optional quiet rules
 
 Add a marker such as `#focus` to an event title or description in Google Calendar, then configure the matching rule in Calendar Quiet:
@@ -50,6 +56,8 @@ Requirements: JDK 17, Android SDK platform 36 and Build Tools 35.0.0. Android St
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Release shrinking is enabled; release signing is intentionally left for the owner's signing configuration. The local timer preview is `artifacts/time-left-preview.apk`, an optimized release signed with the development debug key for device testing. It is not a production-signed release.
 
+v0.6.0 adds local focus progress and rewards without a background ticker or additional permissions. See [progress validation](docs/progress-validation.md) for migration, completion-once and idle-work checks.
+
 v0.5.0 adds bounded calendar snapshots for smoother tab switching, retains visible lists during refresh, and avoids repeated paused-automation cleanup. Fresh data is required before starting calendar-derived timers after invalidation. See [startup and interaction validation](docs/startup-smoothness-validation.md) for measured frame deadlines, CPU, allocations, memory and limits.
 
 v0.4.0 improves countdown presentation and reduces unnecessary work. See [performance and countdown validation](docs/timer-performance-validation.md) for emulator CPU/frame samples, lifecycle checks and their limits. v0.3.0 added native Pomodoro controls and widgets; its [validation](docs/pomodoro-widgets-validation.md) remains historical, along with the earlier [timer-base](docs/timer-base-validation.md) and [day-view/sound](docs/day-view-sound-validation.md) reports. Physical OEM and battery measurements remain unverified.
@@ -60,7 +68,7 @@ v0.4.0 improves countdown presentation and reduces unnecessary work. See [perfor
 2. In **Setup**, allow calendar access. Enable Google Calendar sync on the phone and make the calendar visible in the calendar app.
 3. Enable only the optional access needed for your actions: Do Not Disturb for sound mode, notifications for reminders, notification access for snoozing, and Alarms & reminders for precise timing.
 4. Edit the starter Focus rule or add a rule. Select calendars, timing, reminder text and apps to snooze.
-5. Put the marker in an event, turn automation on, and inspect **Schedule**. Enabling automation also applies rules to events already underway.
+5. Put the marker in an event, turn automation on, and inspect **Rules → View quiet schedule**. Enabling automation also applies rules to events already underway.
 
 Calendar Quiet reads calendar data already synced to Android. It has no Google OAuth client, backend, Internet permission, analytics, accessibility service or busy polling loop. Sync freshness depends on the calendar account's own sync settings.
 
@@ -103,6 +111,8 @@ On Samsung, inspect Sleeping/Deep sleeping apps if scheduled actions are missed.
 ## Code layout
 
 - `core/.../Timers.kt`: countdown clocks, completion counting and calendar suggestions.
+- `core/.../FocusProgress.kt`: cumulative daily counts, XP and streaks.
+- `app/.../ui/ProgressPage.kt`: heatmap, daily targets and milestones.
 - `app/.../timer/`: persistent timer state, alarms, notifications and the widget.
 - `app/.../ui/TimerPage.kt`: timer-first Compose UI.
 

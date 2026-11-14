@@ -143,19 +143,22 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     }
 
     BackHandler(editing != null) { editing = null }
+    BackHandler(page == 3 && editing == null) { page = 2 }
     Scaffold(
         topBar = {
             Surface(color = MaterialTheme.colorScheme.background) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 24.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (editing != null) "Edit rule" else "time left", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
+                        Text(if (editing != null) "Edit rule" else if (page == 3) "Quiet schedule" else "time left", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
                         if (editing != null) Text("Choose when and how it runs", style = MaterialTheme.typography.bodySmall)
                     }
                     if (editing != null) TextButton(onClick = { editing = null }) { Text("Back") }
+                    else if (page == 3) TextButton(onClick = { page = 2 }) { Text("Back to rules") }
                     else {
                         val timerState by context.quietApp.timers.state.collectAsState()
-                        Text("${timerState.completedToday(System.currentTimeMillis())} focus today", style = MaterialTheme.typography.labelMedium,
+                        val count = timerState.completedToday(System.currentTimeMillis())
+                        Text("$count ${if (count == 1) "focus" else "focuses"} today", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -163,11 +166,11 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         },
         bottomBar = {
             if (editing == null) NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
-                listOf("Timer", "Calendar", "Rules", "Schedule", "Setup").forEachIndexed { index, name ->
-                    NavigationBarItem(selected = page == index, onClick = { page = index },
+                listOf(0 to "Timer", 1 to "Calendar", 5 to "Progress", 2 to "Rules", 4 to "Setup").forEachIndexed { index, (destination, name) ->
+                    NavigationBarItem(selected = page == destination || (destination == 2 && page == 3), onClick = { page = destination },
                         colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent),
                         icon = { Icon(painterResource(listOf(dev.calendarquiet.R.drawable.ic_timer, dev.calendarquiet.R.drawable.ic_calendar_outline,
-                            dev.calendarquiet.R.drawable.ic_rules_outline, dev.calendarquiet.R.drawable.ic_clock_outline,
+                            dev.calendarquiet.R.drawable.ic_progress_outline, dev.calendarquiet.R.drawable.ic_rules_outline,
                             dev.calendarquiet.R.drawable.ic_settings_outline)[index]), contentDescription = name,
                             modifier = Modifier.size(22.dp)) }, label = { Text(name, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) })
                 }
@@ -185,6 +188,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
         } else when (page) {
             0 -> TimerPage(context, revision, calendarRevision, calendars, Modifier.padding(padding), requestAccess,
                 onChooseCalendars = ::chooseCalendars, onRefreshCalendars = ::refreshCalendars)
+            5 -> ProgressPage(context, revision, Modifier.padding(padding)) { page = 0 }
             2 -> RulesPage(rules, enabled, status, access, busy, Modifier.padding(padding),
                 onEnabled = { value ->
                     if (value && !access.calendar) requestAccess("calendar")
@@ -200,7 +204,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                 onEdit = { editing = it },
                 onToggle = { rule, value -> editRules({ old -> old.map { if (it.id == rule.id) it.copy(enabled = value) else it } }) },
                 onAdd = { editing = Rule(name = "", marker = "#focus", soundMode = SoundMode.VIBRATE, leadMinutes = 5) },
-                onSetup = { page = 4 })
+                onSetup = { page = 4 }, onSchedule = { page = 3 })
             3 -> SchedulePage(status, enabled, access.exact, Modifier.padding(padding)) {
                 scope.launch { withContext(Dispatchers.IO) { automation.reconcile() } }
             }
@@ -229,7 +233,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
 @Composable
 private fun RulesPage(rules: List<Rule>, enabled: Boolean, status: AutomationStatus, access: Access, busy: Boolean,
     modifier: Modifier, onEnabled: (Boolean) -> Unit, onEdit: (Rule) -> Unit,
-    onToggle: (Rule, Boolean) -> Unit, onAdd: () -> Unit, onSetup: () -> Unit) {
+    onToggle: (Rule, Boolean) -> Unit, onAdd: () -> Unit, onSetup: () -> Unit, onSchedule: () -> Unit) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -239,6 +243,11 @@ private fun RulesPage(rules: List<Rule>, enabled: Boolean, status: AutomationSta
                         Switch(checked = enabled, onCheckedChange = onEnabled, enabled = !busy)
                     }
                     Text(status.message)
+                    TextButton(onClick = onSchedule) {
+                        Icon(painterResource(dev.calendarquiet.R.drawable.ic_clock_outline), null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("View quiet schedule")
+                    }
                     Text("Turning on applies rules to events currently underway.", style = MaterialTheme.typography.bodySmall)
                 }
             }

@@ -9,6 +9,7 @@ import android.provider.Settings
 import dev.calendarquiet.core.Countdown
 import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.core.TimerState
+import dev.calendarquiet.core.FocusProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -67,6 +68,15 @@ class TimerCoordinator(private val context: Context) {
         save(mutableState.value.copy(focusMinutes = focus, breakMinutes = shortBreak,
             longBreakMinutes = longBreak, longBreakEvery = every))
         publish()
+    }
+
+    suspend fun saveDailyGoal(goal: Int) = mutex.withLock {
+        require(goal in 1..12)
+        refreshLocked()
+        val progress = mutableState.value.progress!!
+        if (progress.dailyGoal != goal) {
+            saveProgressOnly(mutableState.value.copy(progress = progress.copy(dailyGoal = goal)))
+        }
     }
 
     suspend fun pauseOrResume(id: String) = mutex.withLock {
@@ -129,14 +139,24 @@ class TimerCoordinator(private val context: Context) {
         mutableState.value = next
     }
 
+    private fun saveProgressOnly(state: TimerState) {
+        // Metadata must not invalidate existing timer/next-session action tokens.
+        store.write(state)
+        mutableState.value = state
+        presented = presented?.copy(state = state)
+    }
+
     private fun refreshLocked(forcePresentation: Boolean = false, forceAlarm: Boolean = false, restoreNotification: Boolean = false) {
         val previous = mutableState.value
         val now = System.currentTimeMillis()
         val elapsedNow = SystemClock.elapsedRealtime()
         val boot = bootCount()
-        val rebased = previous.copy(active = previous.active?.rebaseWallClock(now, elapsedNow, boot))
+        val rebased = previous.copy(active = previous.active?.rebaseWallClock(now, elapsedNow, boot),
+            progress = previous.progress ?: FocusProgress.importHistory(previous.focusFinishedAt, now, java.time.ZoneId.systemDefault()))
         val next = rebased.completeDue(now, elapsedNow, boot)
-        if (next != previous) save(next)
+        if (next != previous) {
+            if (next.copy(progress = previous.progress) == previous) saveProgressOnly(next) else save(next)
+        }
         publish(forcePresentation, forceAlarm, restoreNotification)
         val expired = previous.active
         if (expired != null && next.active == null) {

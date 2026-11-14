@@ -72,6 +72,14 @@ class TimerSmokeRunner : Instrumentation() {
                 check(notificationManager.activeNotifications.any { it.id == 700 })
                 messages.append("PASS: alarm invalidation avoids repaint; explicit surface refresh and notification restoration work\n"); passed++
 
+                val goalRevision = timers.state.value.revision
+                val postBeforeGoal = notificationManager.activeNotifications.first { it.id == 700 }.postTime
+                timers.saveDailyGoal(6)
+                timers.refresh()
+                check(timers.state.value.revision == goalRevision)
+                check(notificationManager.activeNotifications.first { it.id == 700 }.postTime == postBeforeGoal)
+                messages.append("PASS: daily goal changes preserve live timer actions and notification post time\n"); passed++
+
                 val runningNotice = notificationManager.activeNotifications.first { it.id == 700 }.notification
                 runOnMainSync {
                     val content = runningNotice.contentView.apply(context, FrameLayout(context))
@@ -161,6 +169,13 @@ class TimerSmokeRunner : Instrumentation() {
                 val migrated = TimerStore(context).read()
                 check(migrated.focusMinutes == 35 && migrated.breakMinutes == 7)
                 check(migrated.focusFinishedAt == listOf(now) && migrated.longBreakMinutes == 15 && migrated.longBreakEvery == 4)
+                timers = TimerCoordinator(context)
+                timers.refresh()
+                val imported = timers.state.value
+                check(imported.progress!!.summary(java.time.LocalDate.now()).totalFocuses == 1L)
+                val migrationRevision = imported.revision
+                timers.refresh()
+                check(timers.state.value.progress == imported.progress && timers.state.value.revision == migrationRevision)
                 messages.append("PASS: v0.2.2 settings and history migrate without reset\n"); passed++
 
                 TimerStore(context).write(TimerState(revision = 2000))
@@ -175,6 +190,7 @@ class TimerSmokeRunner : Instrumentation() {
                 timers.refresh()
                 val settled = timers.state.value
                 check(settled.active == null && settled.focusFinishedAt.size == 1 && settled.focusesInCycle == 1)
+                check(settled.progress!!.summary(java.time.LocalDate.now()).xp == 10L)
                 timers.refresh()
                 check(timers.state.value.focusFinishedAt.size == 1)
                 // NotificationManager dispatch is asynchronous; wait for the real post.
@@ -182,6 +198,16 @@ class TimerSmokeRunner : Instrumentation() {
                 val finish = notificationManager.activeNotifications.first { it.id == 701 }.notification
                 check(finish.actions.single().title.toString() == "Start short break")
                 messages.append("PASS: due timer completes once and finish notification offers next break\n"); passed++
+                timers.saveDailyGoal(7)
+                check(timers.state.value.revision == settled.revision)
+                val restoredProgress = TimerStore(context).read().progress!!
+                check(restoredProgress.dailyGoal == 7 && restoredProgress.summary(java.time.LocalDate.now()).xp == 10L)
+                // These fixture coordinators are deliberately separate from the app singleton.
+                // Dispatch the revision retained by the already-rendered next-session action.
+                timers.handleAction(TimerReceiver.START_NEXT, settled.revision)
+                check(TimerStore(context).read().active?.kind == TimerKind.BREAK) { "Goal edit invalidated the existing next-session action" }
+                check(TimerStore(context).read().progress!!.summary(java.time.LocalDate.now()).xp == 10L)
+                messages.append("PASS: progress persists once; goal edits preserve earned XP and existing next-session actions\n"); passed++
                 timers.clear()
                 val provider = dev.calendarquiet.data.DeviceCalendars(context)
                 val uiCalendars = dev.calendarquiet.data.UiCalendars(provider)
