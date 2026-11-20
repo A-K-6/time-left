@@ -34,7 +34,6 @@ import dev.calendarquiet.R
 import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.automation.QuietNotificationListener
 import dev.calendarquiet.core.Rule
-import dev.calendarquiet.core.SoundMode
 import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.quietApp
 import kotlinx.coroutines.CancellationException
@@ -46,7 +45,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private data class InstalledApp(val packageName: String, val label: String)
-private data class Access(val calendar: Boolean, val sound: Boolean, val reminders: Boolean, val snooze: Boolean, val exact: Boolean)
+private data class Access(val calendar: Boolean, val reminders: Boolean, val snooze: Boolean, val exact: Boolean)
 
 @Composable
 fun QuietScreen(context: Context, revision: Int, onRequestAccess: (String) -> Unit, openTimerRequest: Int = 0) {
@@ -67,7 +66,6 @@ fun QuietScreen(context: Context, revision: Int, onRequestAccess: (String) -> Un
     var calendarError by remember { mutableStateOf<String?>(null) }
     var calendarSaving by remember { mutableStateOf(false) }
     val selectedCalendars by context.quietApp.timers.calendarSelection.collectAsState()
-    var installed by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val access = remember(revision, status) { readAccess(context) }
@@ -86,13 +84,6 @@ fun QuietScreen(context: Context, revision: Int, onRequestAccess: (String) -> Un
         lifecycle.withVisibleUi {
             rules = automation.store.rules()
             enabled = automation.store.enabled
-        }
-    }
-    // Package labels are needed only by the rule editor, never by a timer tick or launch.
-    LaunchedEffect(editing != null, revision) {
-        lifecycle.withVisibleUi {
-            if (editing == null) return@withVisibleUi
-            installed = withContext(Dispatchers.IO) { readApps(context) }
         }
     }
     DisposableEffect(context, access.calendar, lifecycle) {
@@ -192,7 +183,7 @@ fun QuietScreen(context: Context, revision: Int, onRequestAccess: (String) -> Un
         val current = editing
         if (current != null) {
             key(current.id) {
-                RuleEditor(current, calendars.filter { it.includedByDefault }, installed, busy, Modifier.padding(padding),
+                RuleEditor(context, current, calendars.filter { it.includedByDefault }, busy, Modifier.padding(padding),
                     onSave = { edited -> editRules({ old -> old.filterNot { it.id == edited.id } + edited }, close = true) },
                     onDelete = { editRules({ old -> old.filterNot { it.id == current.id } }, close = true) },
                     isExisting = rules.any { it.id == current.id })
@@ -215,16 +206,16 @@ fun QuietScreen(context: Context, revision: Int, onRequestAccess: (String) -> Un
                 },
                 onEdit = { editing = it },
                 onToggle = { rule, value -> editRules({ old -> old.map { if (it.id == rule.id) it.copy(enabled = value) else it } }) },
-                onAdd = { editing = Rule(name = "", marker = "#focus", soundMode = SoundMode.VIBRATE, leadMinutes = 5) },
+                onAdd = { editing = Rule(name = "", marker = "#focus", leadMinutes = 5) },
                 onSetup = { page = 4 }, onSchedule = { page = 3 })
             3 -> SchedulePage(status, enabled, access.exact, Modifier.padding(padding)) {
                 scope.launch { withContext(Dispatchers.IO) { automation.reconcile() } }
             }
             1 -> CalendarPage(context, revision, calendarRevision, rules, enabled, status, access.calendar,
-                access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
+                access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
                 onEditRule = { editing = it }, onOpenTimer = { page = 0 },
                 onChooseCalendars = ::chooseCalendars, onRefreshCalendars = ::refreshCalendars)
-            else -> SetupPage(access, calendars, calendarLoading, calendarError, Modifier.padding(padding),
+            else -> SetupPage(access, status.legacySoundCleanupNeeded, calendars, calendarLoading, calendarError, Modifier.padding(padding),
                 ::requestAccess, ::chooseCalendars, onPrivacyPolicy = { showingPrivacyPolicy = true })
         }
     }
@@ -297,11 +288,15 @@ private fun RulesPage(rules: List<Rule>, enabled: Boolean, status: AutomationSta
                 }
             }
         }
-        if (!access.calendar || rules.any { it.soundMode != SoundMode.UNCHANGED } && !access.sound ||
+        if (status.legacySoundCleanupNeeded || !access.calendar ||
             rules.any { it.hiddenPackages.isNotEmpty() } && !access.snooze ||
             rules.any { it.reminderText.isNotBlank() } && !access.reminders) {
             item { OutlinedCard(onClick = onSetup) {
-                Column(Modifier.padding(16.dp)) { Text("Finish setup", fontWeight = FontWeight.SemiBold); Text("Enable access for the actions you want to use.") }
+                Column(Modifier.padding(16.dp)) {
+                    Text("Finish setup", fontWeight = FontWeight.SemiBold)
+                    Text(if (status.legacySoundCleanupNeeded) "Check sound settings left by a preview."
+                        else "Enable access for the actions you want to use.")
+                }
             } }
         }
         item {
@@ -319,7 +314,7 @@ private fun RulesPage(rules: List<Rule>, enabled: Boolean, status: AutomationSta
                             Text(rule.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Text(rule.marker, color = MaterialTheme.colorScheme.primary)
                         }
-                        Switch(rule.enabled, { onToggle(rule, it) }, enabled = !busy)
+                        Switch(rule.enabled, { onToggle(rule, it) }, enabled = !busy && rule.hasActions)
                     }
                     Text(ruleSummary(rule), style = MaterialTheme.typography.bodyMedium)
                 }
@@ -363,14 +358,21 @@ private fun SchedulePage(status: AutomationStatus, enabled: Boolean, exact: Bool
 }
 
 @Composable
-private fun SetupPage(access: Access, calendars: List<CalendarSource>, calendarLoading: Boolean, calendarError: String?,
+private fun SetupPage(access: Access, legacySoundCleanupNeeded: Boolean, calendars: List<CalendarSource>, calendarLoading: Boolean, calendarError: String?,
     modifier: Modifier, requestAccess: (String) -> Unit, onChooseCalendars: () -> Unit, onPrivacyPolicy: () -> Unit) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Enable what you need", style = MaterialTheme.typography.titleLarge)
         Text("Events come from calendars synced to this phone. Your rules and settings stay on this device.")
         TextButton(onClick = onPrivacyPolicy) { Text(stringResource(R.string.privacy_policy_title)) }
         AccessCard("Calendar access", "Required to read event titles, descriptions and times.", access.calendar) { requestAccess("calendar") }
-        AccessCard("Sound-mode access", "Allows Silent and Vibrate rules. Silent blocks call and notification sounds and vibration; alarms and media are left alone.", access.sound) { requestAccess("sound") }
+        if (legacySoundCleanupNeeded) {
+            OutlinedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Preview sound settings", style = MaterialTheme.typography.titleMedium)
+                Text("If Calendar Quiet is still on in Do Not Disturb, turn it off in Android Settings. Check your phone’s ringer mode too. Allow Time Left to remove the old rule if Android still lists it.")
+                TextButton(onClick = { requestAccess("dnd_settings") }) { Text("Open Do Not Disturb") }
+                TextButton(onClick = { requestAccess("sound") }) { Text("Manage cleanup access") }
+            } }
+        }
         AccessCard("Custom reminders", "Allows this app to show your reminder notifications.", access.reminders) { requestAccess("reminders") }
         AccessCard("Notification snoozing", "Allows access to other apps' notifications. Only your selected apps are snoozed; notification text is not saved.", access.snooze) { requestAccess("snooze") }
         AccessCard("Alarms & reminders", "Allows precise event-boundary timing. Without it, Android may delay changes.", access.exact) { requestAccess("timing") }
@@ -390,8 +392,7 @@ private fun SetupPage(access: Access, calendars: List<CalendarSource>, calendarL
             Text("If actions are delayed, check background settings. On Samsung, remove Calendar Quiet from Sleeping and Deep sleeping apps. On Xiaomi, check background autostart and the app's battery restrictions. Menu names vary by version.")
             TextButton(onClick = { requestAccess("battery") }) { Text("Open app settings") }
         } }
-        Text("Snoozing happens after a notification arrives: an initial sound or pop-up may still occur. Calls, alarms, media controls and ongoing notifications are excluded. Existing snoozes cannot be ended early by this app, even if an event is cancelled or shortened.", style = MaterialTheme.typography.bodySmall)
-        Text("Other Do Not Disturb rules remain in control. Vibrate does not override them. A manual sound-mode change pauses sound automation until the current group of overlapping events ends.", style = MaterialTheme.typography.bodySmall)
+        Text("Snoozing happens after a notification arrives, so an initial sound or pop-up may still occur. Time Left skips ongoing notifications and ones marked as calls, alarms or media. Already snoozed notifications keep their original return time if you pause or edit a rule.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -408,12 +409,10 @@ private fun AccessCard(title: String, detail: String, granted: Boolean, action: 
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
-private fun RuleEditor(original: Rule, calendars: List<CalendarSource>, apps: List<InstalledApp>, busy: Boolean,
+private fun RuleEditor(context: Context, original: Rule, calendars: List<CalendarSource>, busy: Boolean,
     modifier: Modifier, onSave: (Rule) -> Unit, onDelete: () -> Unit, isExisting: Boolean) {
     var name by rememberSaveable { mutableStateOf(original.name) }
     var marker by rememberSaveable { mutableStateOf(original.marker) }
-    var mode by rememberSaveable { mutableStateOf(original.soundMode.name) }
     var lead by rememberSaveable { mutableStateOf(original.leadMinutes.toString()) }
     var reminder by rememberSaveable { mutableStateOf(original.reminderText) }
     var reminderLead by rememberSaveable { mutableStateOf(original.reminderLeadMinutes.toString()) }
@@ -432,13 +431,6 @@ private fun RuleEditor(original: Rule, calendars: List<CalendarSource>, apps: Li
             Text(if (selectedCalendars.isEmpty()) "All visible synced calendars" else "${selectedCalendars.size} calendar(s) selected")
         }
         HorizontalDivider()
-        Text("Sound mode", style = MaterialTheme.typography.titleMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SoundMode.entries.forEach { value -> FilterChip(mode == value.name, { mode = value.name }, label = { Text(modeName(value)) }) }
-        }
-        NumberField("Activate before event (minutes)", lead, { lead = it })
-        Text("Sound restores at the event's end unless you changed it manually. Silent takes priority when events overlap.", style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider()
         Text("Custom reminder", style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(reminder, { reminder = it }, label = { Text("Reminder text (optional)") }, supportingText = { Text("Use {event} for the event title. Leave empty for no reminder.") }, modifier = Modifier.fillMaxWidth())
         NumberField("Remind before event (minutes)", reminderLead, { reminderLead = it })
@@ -448,14 +440,14 @@ private fun RuleEditor(original: Rule, calendars: List<CalendarSource>, apps: Li
             Text(if (packages.isEmpty()) "Choose apps to snooze" else "${packages.size} app(s) selected")
         }
         if (packages.isNotEmpty()) {
-            Text(packages.joinToString { pkg -> apps.find { it.packageName == pkg }?.label ?: pkg }, style = MaterialTheme.typography.bodySmall)
+            NumberField("Start snooze before event (minutes)", lead, { lead = it })
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(fixedDuration, { fixedDuration = it })
                 Text("Hide for a fixed duration", Modifier.weight(1f))
             }
             if (fixedDuration) NumberField("Duration from activation (minutes)", hideDuration, { hideDuration = it })
             else Text("Notifications return at the event's scheduled end.", style = MaterialTheme.typography.bodySmall)
-            Text("Starts at the activation offset above. Fixed duration is capped at the event's end. Calls, alarms and ongoing notifications are excluded.", style = MaterialTheme.typography.bodySmall)
+            Text("A fixed duration ends no later than the event. Existing snoozes keep their return time if you pause or change the rule.", style = MaterialTheme.typography.bodySmall)
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
@@ -465,7 +457,7 @@ private fun RuleEditor(original: Rule, calendars: List<CalendarSource>, apps: Li
             if (leadNumber == null || reminderNumber == null || fixedDuration && packages.isNotEmpty() && durationNumber == null) {
                 error = "Enter whole numbers for timing values."
             } else {
-                val edited = original.copy(name = name.trim(), marker = marker.trim(), soundMode = SoundMode.valueOf(mode),
+                val edited = original.copy(name = name.trim(), marker = marker.trim(),
                     leadMinutes = leadNumber, reminderText = reminder.trim(), reminderLeadMinutes = reminderNumber,
                     calendarIds = selectedCalendars.toSet(), hiddenPackages = packages.toSet(),
                     hideMinutes = if (fixedDuration && packages.isNotEmpty()) durationNumber else null)
@@ -479,8 +471,15 @@ private fun RuleEditor(original: Rule, calendars: List<CalendarSource>, apps: Li
         "calendars" -> SelectionDialog("Choose calendars", "Leave all unchecked to match every visible synced calendar.",
             calendars.map { Choice(it.id.toString(), "${it.name} · ${it.account}") }, selectedCalendars.map { it.toString() }.toSet(),
             onChange = { selectedCalendars = it.map(String::toLong) }, onDone = { picker = null })
-        "apps" -> SelectionDialog("Choose apps to snooze", "Only ordinary notifications from selected apps will be hidden.",
-            apps.map { Choice(it.packageName, it.label) }, packages.toSet(), onChange = { packages = it.toList() }, onDone = { picker = null })
+        "apps" -> {
+            val apps by produceState<List<InstalledApp>?>(null, context) {
+                value = withContext(Dispatchers.IO) { readApps(context) }
+            }
+            SelectionDialog("Choose apps to snooze",
+                if (apps == null) "Loading apps…" else "Select apps whose notifications you can safely delay.",
+                apps.orEmpty().map { Choice(it.packageName, it.label) }, packages.toSet(),
+                onChange = { packages = it.toList() }, onDone = { picker = null })
+        }
     }
     if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Delete this rule?") },
         text = { Text("Future actions stop. Existing notification snoozes keep their original timer.") },
@@ -523,7 +522,6 @@ private fun SelectionDialog(title: String, detail: String, choices: List<Choice>
 private fun readAccess(context: Context): Access {
     val notifications = context.getSystemService(NotificationManager::class.java)
     return Access(context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED,
-        notifications.isNotificationPolicyAccessGranted,
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED && notifications.areNotificationsEnabled(),
         notifications.isNotificationListenerAccessGranted(ComponentName(context, QuietNotificationListener::class.java)),
         context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms())
@@ -536,13 +534,8 @@ private fun readApps(context: Context): List<InstalledApp> {
         .map { InstalledApp(it.activityInfo.packageName, it.loadLabel(context.packageManager).toString()) }
         .distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
 }
-private fun modeName(mode: SoundMode) = when (mode) {
-    SoundMode.UNCHANGED -> "Keep current"
-    SoundMode.VIBRATE -> "Vibrate"
-    SoundMode.SILENT -> "Silent"
-}
 private fun ruleSummary(rule: Rule) = buildList {
-    if (rule.soundMode != SoundMode.UNCHANGED) add("${modeName(rule.soundMode)} ${rule.leadMinutes} min before")
+    if (!rule.hasActions) add("Set a reminder or choose apps to snooze")
     if (rule.reminderText.isNotBlank()) add("Reminder ${rule.reminderLeadMinutes} min before")
     if (rule.hiddenPackages.isNotEmpty()) add("Snooze ${rule.hiddenPackages.size} app(s)")
 }.joinToString(" · ")

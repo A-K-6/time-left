@@ -55,7 +55,7 @@ open class TimerWidget : AppWidgetProvider() {
             }
         }
 
-        private fun views(context: Context, state: TimerState, boot: Int, layout: Int, compact: Boolean): RemoteViews {
+        internal fun views(context: Context, state: TimerState, boot: Int, layout: Int, compact: Boolean): RemoteViews {
             val open = PendingIntent.getActivity(context, 700, Intent(context, MainActivity::class.java).setAction(MainActivity.OPEN_TIMER)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -64,7 +64,16 @@ open class TimerWidget : AppWidgetProvider() {
             val horizontal = layout == R.layout.timer_widget_small
             val now = System.currentTimeMillis()
             val running = timer != null && !timer.isPaused
-            views.setTextViewText(R.id.widget_title, timer?.let { if (it.isPaused) "${it.title} · paused" else it.title } ?: if (state.nextSessionKind == TimerKind.FOCUS) "Ready to focus" else "Time for a break")
+            // A launcher hosts these views. Send only generic timer kinds to it.
+            val title = when (timer?.kind) {
+                TimerKind.FOCUS -> "Focus"
+                TimerKind.BREAK -> "Short break"
+                TimerKind.LONG_BREAK -> "Long break"
+                TimerKind.EVENT -> "Calendar countdown"
+                TimerKind.FREE_TIME -> "Free time"
+                null -> if (state.nextSessionKind == TimerKind.FOCUS) "Ready to focus" else "Time for a break"
+            }
+            views.setTextViewText(R.id.widget_title, if (timer?.isPaused == true) "$title · paused" else title)
             views.setViewVisibility(R.id.widget_countdown, if (running) View.VISIBLE else View.GONE)
             views.setViewVisibility(R.id.widget_idle, if (running) View.GONE else View.VISIBLE)
             val left = timer?.remaining(now, SystemClock.elapsedRealtime(), boot)?.coerceAtLeast(0) ?: 0

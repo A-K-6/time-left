@@ -2,7 +2,6 @@ package dev.calendarquiet.data
 
 import android.content.Context
 import dev.calendarquiet.core.Rule
-import dev.calendarquiet.core.SoundMode
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -15,27 +14,35 @@ class Store(context: Context) {
 
     fun rules(): List<Rule> {
         val raw = prefs.getString("rules", null) ?: return listOf(Rule(
-            id = "initial-focus", name = "Focus", marker = "#focus", soundMode = SoundMode.VIBRATE,
+            id = "initial-focus", name = "Focus", marker = "#focus",
             leadMinutes = 5, reminderText = "Time to focus: {event}", reminderLeadMinutes = 10,
         ))
         return parseArray(raw).map { json ->
-            Rule(json.getString("id"), json.getString("name"), json.getString("marker"),
-                json.optJSONArray("calendarIds").longSet(),
-                SoundMode.valueOf(json.getString("soundMode")), json.optInt("leadMinutes"),
-                json.optString("reminderText"), json.optInt("reminderLeadMinutes", 10),
-                json.optJSONArray("hiddenPackages").stringSet(),
-                if (json.isNull("hideMinutes")) null else json.getInt("hideMinutes"),
-                json.optBoolean("enabled", true))
+            val reminder = json.optString("reminderText")
+            val packages = json.optJSONArray("hiddenPackages").stringSet()
+            Rule(
+                id = json.getString("id"),
+                name = json.getString("name"),
+                marker = json.getString("marker"),
+                calendarIds = json.optJSONArray("calendarIds").longSet(),
+                leadMinutes = json.optInt("leadMinutes"),
+                reminderText = reminder,
+                reminderLeadMinutes = json.optInt("reminderLeadMinutes", 10),
+                hiddenPackages = packages,
+                hideMinutes = if (json.isNull("hideMinutes")) null else json.getInt("hideMinutes"),
+                // Leave sound-only preview rules visible and editable after the upgrade.
+                enabled = json.optBoolean("enabled", true) && (reminder.isNotBlank() || packages.isNotEmpty()),
+            )
         }
     }
 
     fun saveRules(rules: List<Rule>) {
-        require(rules.all { it.validationError() == null })
+        require(rules.all { it.validationError(allowDisabledWithoutActions = true) == null })
         val array = JSONArray()
         rules.forEach { rule -> array.put(JSONObject().apply {
             put("id", rule.id); put("name", rule.name); put("marker", rule.marker)
             put("calendarIds", JSONArray(rule.calendarIds.toList()))
-            put("soundMode", rule.soundMode.name); put("leadMinutes", rule.leadMinutes)
+            put("soundMode", "UNCHANGED"); put("leadMinutes", rule.leadMinutes)
             put("reminderText", rule.reminderText); put("reminderLeadMinutes", rule.reminderLeadMinutes)
             put("hiddenPackages", JSONArray(rule.hiddenPackages.toList()))
             put("hideMinutes", rule.hideMinutes ?: JSONObject.NULL); put("enabled", rule.enabled)

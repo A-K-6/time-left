@@ -1,0 +1,13 @@
+Time Left
+Copyright (c) 2026 Aeen Karimian
+See MIT.txt for the Time Left license.
+
+This app includes AndroidX, the Kotlin standard library, Kotlin coroutines,
+JetBrains Annotations, and Guava ListenableFuture, distributed under the
+Apache License, Version 2.0. See Apache-2.0.txt.
+
+AndroidX: https://android.googlesource.com/platform/frameworks/support/
+Kotlin: https://github.com/JetBrains/kotlin
+Kotlin coroutines: https://github.com/Kotlin/kotlinx.coroutines
+JetBrains Annotations: https://github.com/JetBrains/java-annotations
+Guava ListenableFuture: https://github.com/google/guava

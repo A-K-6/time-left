@@ -38,15 +38,14 @@ Rewards stay on this device and survive timer-history pruning. Existing saved co
 
 Add a marker such as `#focus` to an event title or description in Google Calendar, then configure the matching rule in Calendar Quiet:
 
-- Switch to **Vibrate** or **Silent** a chosen number of minutes before the event; release the sound action at the event's end.
 - Show a **custom reminder** before the event. `{event}` inserts the event title.
 - **Snooze ordinary notifications from selected apps** until the scheduled event end or for a fixed duration measured from rule activation, capped at the event end.
 
 Rules can match all visible synced calendars or a selected subset. Matching is case-insensitive and uses whole markers: `#focus` does not match `#focused`. Recurring occurrences and calendar edits are read through Android's Calendar Provider. All-day, cancelled and declined events are excluded from automation.
 
-The **Calendar** tab opens in a scrollable **Day** timeline with hourly lines, calendar-colored event blocks, side-by-side overlaps, an all-day strip and a current-time indicator. Previous/next day and Today navigation are available; the **Month** toggle keeps the month grid and agenda. Select a date in Month to open its day. Tap a timeline event for details, its calendar account, quiet-rule status and, for an event underway, a countdown action. Both views use the same calendar sources as Timer suggestions, including events without rules, all-day events and declined invitations. It works while automation is paused. Select a day to see each matching rule's scheduled, active, disabled or paused state, sound mode, app snoozing and quiet window; tap a rule to edit it. All-day and declined events remain visible but do not activate rules. Cancelled events are omitted. Missing action permissions are shown alongside the rule, and an active rule does not guarantee that every optional action succeeded.
+The **Calendar** tab opens in a scrollable **Day** timeline with hourly lines, calendar-colored event blocks, side-by-side overlaps, an all-day strip and a current-time indicator. Previous/next day and Today navigation are available; the **Month** toggle keeps the month grid and agenda. Select a date in Month to open its day. Tap a timeline event for details, its calendar account, quiet-rule status and, for an event underway, a countdown action. Both views use the same calendar sources as Timer suggestions, including events without rules, all-day events and declined invitations. It works while automation is paused. Select a day to see each matching rule's scheduled, active, disabled or paused state, app snoozing and quiet window; tap a rule to edit it. All-day and declined events remain visible but do not activate rules. Cancelled events are omitted. Missing action permissions are shown alongside the rule, and an active rule does not guarantee that every optional action succeeded.
 
-Overlapping sound rules use Silent over Vibrate. Notification hiding uses the latest active deadline for each selected app. Manual ringer changes pause sound automation through the connected set of overlapping sound events. Other Do Not Disturb rules are preserved.
+Overlapping snooze rules use the latest active deadline for each selected app. Home-screen widgets show generic timer labels. Calendar titles and custom focus labels stay out of the widget host.
 
 ## Build
 
@@ -68,7 +67,7 @@ v0.4.0 improves countdown presentation and reduces unnecessary work. See [perfor
 
 1. Install and open the app. Automation starts paused.
 2. In **Setup**, allow calendar access. Enable Google Calendar sync on the phone and make the calendar visible in the calendar app.
-3. Enable only the optional access needed for your actions: Do Not Disturb for sound mode, notifications for reminders, notification access for snoozing, and Alarms & reminders for precise timing.
+3. Enable notifications for reminders, notification access for snoozing, or Alarms & reminders for precise timing as needed.
 4. Edit the starter Focus rule or add a rule. Select calendars, timing, reminder text and apps to snooze.
 5. Put the marker in an event, turn automation on, and inspect **Rules → View quiet schedule**. Enabling automation also applies rules to events already underway.
 
@@ -82,13 +81,13 @@ Calendar Quiet reads calendar data already synced to Android. It has no Google O
 - The notification listener reacts to posted notifications and checks small cached package/deadline settings. Notification bodies are not saved.
 - Rules and runtime settings use a small private SharedPreferences store; no database or dependency-injection framework is needed for this first version.
 
-Silent uses an app-owned automatic Do Not Disturb rule to block calls and notification sound/vibration, while leaving media and alarms allowed. Vibrate uses Android's ringer mode and does not override another active DND rule. Calendar Quiet never switches off someone else's DND rule.
+Version 0.6.2 retires automatic Silent and Vibrate. Earlier previews relied on an app callback to restore sound, and Android can cancel it after a force-stop. A compatible upgrade removes the preview's Do Not Disturb rule and restores the prior ringer mode when the app still owns the applied setting. If Android prevents cleanup, **Setup** shows how to check the old Calendar Quiet mode and ringer settings. Existing reminders and snoozes remain configured. Rules that used only a sound action remain disabled until you give them a new action and turn them on.
 
 ## Platform limits
 
-- Without exact-alarm access, Android may delay sound changes and reminders. Even exact alarms are subject to idle-mode frequency limits. This app uses `SCHEDULE_EXACT_ALARM`, not the restricted auto-granted `USE_EXACT_ALARM` permission.
-- A notification listener acts **after posting**. Snoozing does not guarantee that an initial sound or pop-up never happens. Sound-mode rules are independent.
-- Ongoing/foreground-service notifications, non-clearable notifications, group summaries, calls, alarms, system notifications and media controls are excluded from snoozing.
+- Without exact-alarm access, Android may delay reminders and snooze timing. Even exact alarms are subject to idle-mode frequency limits. Precise timing uses `SCHEDULE_EXACT_ALARM`.
+- A notification listener acts **after posting**. An initial sound or pop-up may still happen.
+- Snoozing skips ongoing or non-clearable notifications, group summaries, and notifications marked as calls, alarms, system notifications or media controls. Choose apps whose ordinary notifications you can safely delay.
 - Android handles timed notification return. Notifications cancelled by the originating app may not return. Pausing, removing a rule or shortening/cancelling an event does **not** end an existing snooze early. Extending an event takes effect when notifications return and can be snoozed again.
 - Notifications in a separate work profile may be inaccessible. Device policy and OEM behavior can impose further restrictions.
 - A force-stop prevents automation until the app is opened again. Permission revocation can also prevent actions; Setup and status messages expose missing access.
@@ -99,14 +98,10 @@ Silent uses an app-owned automatic Do Not Disturb rule to block calls and notifi
 
 Use short test events in a calendar you control. Check each case on both Samsung One UI and Xiaomi HyperOS, with the screen off as well as on:
 
-1. Start from normal ringer mode; verify a Vibrate event activates and restores it. Repeat from a manually selected silent mode.
-2. Verify Silent suppresses call/notification sound and vibration, while alarms/media and separate DND rules retain their settings.
-3. Change the ringer or deactivate the app's DND rule manually during an event; verify later refreshes do not overwrite the decision.
-4. Overlap Silent and Vibrate events, including a chain of overlaps; verify transitions and final restoration.
-5. Send an ordinary notification from a selected app before and during an event; verify snoozing and timed return. Confirm unselected apps and ongoing notifications remain visible.
-6. Edit, delete, move and repeat events; check a single reminder per occurrence and the existing-snooze limitation.
-7. Reboot, change time zone, revoke/regrant each access and test with exact-alarm access disabled.
-8. Check behavior with another DND mode active, device battery saver, and manufacturer background restrictions.
+1. Send an ordinary notification from a selected app before and during an event. Verify snoozing and timed return. Confirm unselected apps and ongoing notifications remain visible.
+2. Edit, delete, move and repeat events. Check a single reminder per occurrence and the existing-snooze limitation.
+3. Reboot, change time zone, revoke and regrant access, and test with exact-alarm access disabled.
+4. Check widgets and notifications with battery saver and manufacturer background restrictions enabled.
 
 On Samsung, inspect Sleeping/Deep sleeping apps if scheduled actions are missed. On Xiaomi, inspect background autostart and per-app battery restrictions. Exact menu names vary; the app links to its Android settings. Change these settings only if testing demonstrates a need.
 

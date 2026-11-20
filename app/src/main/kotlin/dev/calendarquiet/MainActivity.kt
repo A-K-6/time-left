@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
             "calendar_sync" -> openSettings(Intent(Settings.ACTION_SYNC_SETTINGS)
                 .putExtra(Settings.EXTRA_AUTHORITIES, arrayOf(android.provider.CalendarContract.AUTHORITY)))
             "sound" -> openSettings(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+            "dnd_settings" -> openSettings(Intent("android.settings.ZEN_MODE_SETTINGS"))
             "snooze" -> openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
                 .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
                     ComponentName(this, dev.calendarquiet.automation.QuietNotificationListener::class.java).flattenToString()))

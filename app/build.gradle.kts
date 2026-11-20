@@ -12,8 +12,8 @@ android {
             "dev.calendarquiet.PerformanceRunner" else "dev.calendarquiet.TimerSmokeRunner"
         minSdk = 33
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.6.1"
+        versionCode = 11
+        versionName = "0.6.2"
     }
     buildFeatures { compose = true }
     compileOptions {

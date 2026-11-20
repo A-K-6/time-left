@@ -23,7 +23,6 @@ import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.core.Rule
 import dev.calendarquiet.core.RuleEngine
 import dev.calendarquiet.core.Session
-import dev.calendarquiet.core.SoundMode
 import dev.calendarquiet.core.occursOn
 import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.quietApp
@@ -44,7 +43,7 @@ import java.util.Locale
 @Composable
 internal fun CalendarPage(
     context: Context, revision: Int, calendarRevision: Int, rules: List<Rule>, enabled: Boolean,
-    status: AutomationStatus, hasAccess: Boolean, soundAccess: Boolean, snoozeAccess: Boolean,
+    status: AutomationStatus, hasAccess: Boolean, snoozeAccess: Boolean,
     reminderAccess: Boolean, calendars: List<CalendarSource>,
     modifier: Modifier, onRequestAccess: () -> Unit, onEditRule: (Rule) -> Unit, onOpenTimer: () -> Unit,
     onChooseCalendars: () -> Unit, onRefreshCalendars: () -> Unit,
@@ -150,7 +149,7 @@ internal fun CalendarPage(
                 if (!loading && error == null && dayEvents.isEmpty()) item { Text("No events on this day") }
                 items(dayEvents, key = { "${it.calendarId}:${it.id}:${it.start}" }) { event ->
                     EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId },
-                        rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
+                        rules, enabled, status, now, zone, snoozeAccess, reminderAccess, onEditRule)
                     HorizontalDivider(Modifier.padding(top = 12.dp))
                 }
             }
@@ -162,7 +161,7 @@ internal fun CalendarPage(
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     EventAgenda(event, calendars.firstOrNull { it.id == event.calendarId },
-                        rules, enabled, status, now, zone, soundAccess, snoozeAccess, reminderAccess, onEditRule)
+                        rules, enabled, status, now, zone, snoozeAccess, reminderAccess, onEditRule)
                     if (!event.busy) Text("Marked free", style = MaterialTheme.typography.bodySmall)
                     if (canCountDown && timerState.active != null) Text("A timer is already running.", style = MaterialTheme.typography.bodySmall)
                 }
@@ -231,7 +230,7 @@ private fun MonthGrid(month: YearMonth, selected: LocalDate,
 
 @Composable
 private fun EventAgenda(event: CalendarEvent, calendar: CalendarSource?, rules: List<Rule>, enabled: Boolean,
-    status: AutomationStatus, now: Long, zone: ZoneId, soundAccess: Boolean, snoozeAccess: Boolean,
+    status: AutomationStatus, now: Long, zone: ZoneId, snoozeAccess: Boolean,
     reminderAccess: Boolean, onEditRule: (Rule) -> Unit) {
     val quietAvailable = calendar?.includedByDefault != false
     val matching = if (quietAvailable) rules.filter { RuleEngine.matches(it, event, includeDisabled = true) } else emptyList()
@@ -260,23 +259,18 @@ private fun EventAgenda(event: CalendarEvent, calendar: CalendarSource?, rules: 
             }
             TextButton(onClick = { onEditRule(rule) }) { Text("${rule.name} - $label") }
             val actions = buildList {
-                when (rule.soundMode) {
-                    SoundMode.SILENT -> add("Silent")
-                    SoundMode.VIBRATE -> add("Vibrate")
-                    SoundMode.UNCHANGED -> Unit
-                }
+                if (!rule.hasActions) add("Set a reminder or choose apps to snooze")
                 if (rule.hiddenPackages.isNotEmpty()) add("Snooze ${rule.hiddenPackages.size} app(s)")
                 if (rule.reminderText.isNotBlank()) add("Reminder ${rule.reminderLeadMinutes} min before")
             }
             Text(actions.joinToString(" / "), style = MaterialTheme.typography.bodySmall)
             val missing = buildList {
-                if (rule.soundMode != SoundMode.UNCHANGED && !soundAccess) add("sound")
                 if (rule.hiddenPackages.isNotEmpty() && !snoozeAccess) add("notification snoozing")
                 if (rule.reminderText.isNotBlank() && !reminderAccess) add("reminders")
             }
             if (missing.isNotEmpty()) Text("Access needed: ${missing.joinToString(", ")}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            if (rule.soundMode != SoundMode.UNCHANGED || rule.hiddenPackages.isNotEmpty()) {
+            if (rule.hiddenPackages.isNotEmpty()) {
                 Text("Quiet window: ${formatter.format(Instant.ofEpochMilli(session.start))} - ${formatter.format(Instant.ofEpochMilli(session.end))}",
                     style = MaterialTheme.typography.bodySmall)
                 if (rule.hiddenPackages.isNotEmpty() && session.hideEnd < session.end) {

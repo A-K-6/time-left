@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Chronometer
 import android.widget.TextView
 import android.widget.FrameLayout
@@ -18,6 +19,7 @@ import dev.calendarquiet.core.TimerState
 import dev.calendarquiet.timer.TimerCoordinator
 import dev.calendarquiet.timer.TimerReceiver
 import dev.calendarquiet.timer.TimerStore
+import dev.calendarquiet.timer.TimerWidget
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -241,6 +243,48 @@ class TimerSmokeRunner : Instrumentation() {
                 delay(20); automation.reconcile()
                 check(automation.status.value.lastRefresh > pausedStatus.lastRefresh)
                 messages.append("PASS: paused UI resumes avoid repeated effects; explicit system reconciliation still runs\n"); passed++
+
+                val oldRules = automation.store.prefs.getString("rules", null)
+                try {
+                    check(automation.store.prefs.edit().putString("rules", """
+                        [
+                          {"id":"old-silent","name":"Old Silent","marker":"#focus","soundMode":"SILENT","enabled":true},
+                          {"id":"mixed","name":"Reminder and snooze","marker":"#focus","soundMode":"VIBRATE",
+                           "calendarIds":[7],"leadMinutes":5,"reminderText":"Start work","reminderLeadMinutes":10,
+                           "hiddenPackages":["example.chat"],"hideMinutes":30,"enabled":true}
+                        ]
+                    """.trimIndent()).commit())
+                    val (silent, mixed) = automation.store.rules()
+                    check(!silent.enabled && !silent.hasActions && silent.id == "old-silent")
+                    check(mixed.enabled && mixed.reminderText == "Start work" && mixed.reminderLeadMinutes == 10)
+                    check(mixed.calendarIds == setOf(7L) && mixed.hiddenPackages == setOf("example.chat"))
+                    check(mixed.leadMinutes == 5 && mixed.hideMinutes == 30)
+                    automation.store.saveRules(listOf(silent, mixed.copy(name = "Updated")))
+                    check(automation.store.rules() == listOf(silent, mixed.copy(name = "Updated")))
+                } finally {
+                    automation.store.prefs.edit().putString("rules", oldRules).commit()
+                }
+                messages.append("PASS: sound-only rules remain editable and disabled, mixed rules keep reminders and snooze settings\n"); passed++
+
+                fun widgetText(view: View): Sequence<CharSequence> = when (view) {
+                    is TextView -> sequenceOf(view.text)
+                    is ViewGroup -> (0 until view.childCount).asSequence().flatMap { widgetText(view.getChildAt(it)) }
+                    else -> emptySequence()
+                }
+                runOnMainSync {
+                    val event = Countdown(kind = TimerKind.EVENT, title = "PRIVATE_EVENT_TITLE", startedAt = now, endsAt = now + 5 * MINUTE)
+                    val focus = Countdown(kind = TimerKind.FOCUS, title = "PRIVATE_FOCUS_LABEL", startedAt = now,
+                        endsAt = now + 5 * MINUTE, pausedRemaining = 4 * MINUTE)
+                    for ((layout, compact) in listOf(R.layout.timer_widget to false, R.layout.timer_widget_small to true, R.layout.focus_widget to true)) {
+                        for ((timer, expectedLabel) in listOf(event to "Calendar countdown", focus to "Focus · paused")) {
+                            val views = TimerWidget.views(context, TimerState(active = timer), timers.bootCount(), layout, compact)
+                            val view = views.apply(context, FrameLayout(context))
+                            check(view.findViewById<TextView>(R.id.widget_title).text.toString() == expectedLabel)
+                            check(widgetText(view).none { it.contains(timer.title) })
+                        }
+                    }
+                }
+                messages.append("PASS: all widget layouts omit private calendar titles and custom focus labels\n"); passed++
             }
         } catch (exception: Throwable) {
             failure = exception
