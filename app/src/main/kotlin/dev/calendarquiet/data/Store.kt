@@ -2,6 +2,7 @@ package dev.calendarquiet.data
 
 import android.content.Context
 import dev.calendarquiet.core.Rule
+import dev.calendarquiet.core.MAX_SNOOZE_MINUTES
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -34,7 +35,8 @@ class Store(context: Context) {
                 reminderText = reminder,
                 reminderLeadMinutes = json.optInt("reminderLeadMinutes", 10),
                 hiddenPackages = packages,
-                hideMinutes = if (json.isNull("hideMinutes")) null else json.getInt("hideMinutes"),
+                hideMinutes = if (json.isNull("hideMinutes")) null
+                    else json.getInt("hideMinutes").coerceAtMost(MAX_SNOOZE_MINUTES),
                 // Leave sound-only preview rules visible and editable after the upgrade.
                 enabled = json.optBoolean("enabled", true) && (reminder.isNotBlank() || packages.isNotEmpty()),
             )

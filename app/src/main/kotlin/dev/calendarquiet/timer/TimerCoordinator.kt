@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings
 import dev.calendarquiet.core.Countdown
+import dev.calendarquiet.core.MINUTE
 import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.core.TimerState
 import dev.calendarquiet.core.FocusProgress
@@ -161,7 +162,7 @@ class TimerCoordinator(private val context: Context) {
         val expired = previous.active
         if (expired != null && next.active == null) {
             val finishedAt = expired.finishTime(now, elapsedNow, boot)
-            if (now - finishedAt <= 5 * 60_000) notifications.finished(expired, mutableState.value)
+            notifications.finished(expired, mutableState.value, late = now - finishedAt > 5 * MINUTE)
         }
     }
 

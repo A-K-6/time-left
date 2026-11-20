@@ -135,7 +135,7 @@ class TimerNotifications(private val context: Context) {
         }
     }
 
-    fun finished(timer: Countdown, state: TimerState) {
+    fun finished(timer: Countdown, state: TimerState, late: Boolean) {
         val next = state.nextSessionKind
         val label = when (next) {
             TimerKind.LONG_BREAK -> "Start long break"
@@ -143,7 +143,7 @@ class TimerNotifications(private val context: Context) {
             else -> "Start focus"
         }
         postAlert(timer.kind, "${timer.title} finished", "$label · ${state.minutesFor(next)} min", 701, 60_000,
-            label, TimerReceiver.action(context, TimerReceiver.START_NEXT, state.revision), silent = !playOnFinish)
+            label, TimerReceiver.action(context, TimerReceiver.START_NEXT, state.revision), silent = late || !playOnFinish)
     }
 
     fun test(kind: TimerKind): Boolean = postAlert(kind, "${channelName(kind)} test", "Your timer cue plays once.", 703, 10_000)

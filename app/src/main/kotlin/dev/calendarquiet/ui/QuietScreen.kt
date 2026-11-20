@@ -34,6 +34,7 @@ import dev.calendarquiet.R
 import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.automation.QuietNotificationListener
 import dev.calendarquiet.core.Rule
+import dev.calendarquiet.core.MAX_SNOOZE_MINUTES
 import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.quietApp
 import kotlinx.coroutines.CancellationException
@@ -446,8 +447,8 @@ private fun RuleEditor(context: Context, original: Rule, calendars: List<Calenda
                 Text("Hide for a fixed duration", Modifier.weight(1f))
             }
             if (fixedDuration) NumberField("Duration from activation (minutes)", hideDuration, { hideDuration = it })
-            else Text("Notifications return at the event's scheduled end.", style = MaterialTheme.typography.bodySmall)
-            Text("A fixed duration ends no later than the event. Existing snoozes keep their return time if you pause or change the rule.", style = MaterialTheme.typography.bodySmall)
+            Text("Each rule snoozes only through its event's scheduled end. Overlapping or back-to-back rules for the same app share a $MAX_SNOOZE_MINUTES-minute limit from the first activation.", style = MaterialTheme.typography.bodySmall)
+            Text("Existing snoozes keep their return time if you pause or change the rule.", style = MaterialTheme.typography.bodySmall)
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {

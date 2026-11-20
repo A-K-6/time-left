@@ -21,6 +21,7 @@ import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.core.CalendarEvent
 import dev.calendarquiet.core.CalendarSource
 import dev.calendarquiet.core.Rule
+import dev.calendarquiet.core.MAX_SNOOZE_MINUTES
 import dev.calendarquiet.core.RuleEngine
 import dev.calendarquiet.core.Session
 import dev.calendarquiet.core.occursOn
@@ -271,12 +272,8 @@ private fun EventAgenda(event: CalendarEvent, calendar: CalendarSource?, rules: 
             if (missing.isNotEmpty()) Text("Access needed: ${missing.joinToString(", ")}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             if (rule.hiddenPackages.isNotEmpty()) {
-                Text("Quiet window: ${formatter.format(Instant.ofEpochMilli(session.start))} - ${formatter.format(Instant.ofEpochMilli(session.end))}",
+                Text("Scheduled snooze start: ${formatter.format(Instant.ofEpochMilli(session.start))} · up to ${rule.hideMinutes ?: MAX_SNOOZE_MINUTES} min",
                     style = MaterialTheme.typography.bodySmall)
-                if (rule.hiddenPackages.isNotEmpty() && session.hideEnd < session.end) {
-                    Text("App snoozing ends ${formatter.format(Instant.ofEpochMilli(session.hideEnd))}",
-                        style = MaterialTheme.typography.bodySmall)
-                }
             }
         }
     }

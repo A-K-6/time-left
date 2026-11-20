@@ -230,6 +230,27 @@ class TimerSmokeRunner : Instrumentation() {
                 timerNotifications.clearFinished()
                 messages.append("PASS: disabling finish sound keeps the notification and action on the same channel, with alerts suppressed\n"); passed++
 
+                timerNotifications.setPlayOnFinish(true)
+                val lateDue = due.copy(startedAt = now - 7 * MINUTE, endsAt = now - 6 * MINUTE,
+                    elapsedDeadline = SystemClock.elapsedRealtime() - 6 * MINUTE)
+                TimerStore(context).write(TimerState(active = lateDue))
+                timers = TimerCoordinator(context)
+                timers.refresh()
+                repeat(30) { if (notificationManager.activeNotifications.none { it.id == 701 }) delay(50) }
+                val latePost = notificationManager.activeNotifications.first { it.id == 701 }
+                val lateFinish = latePost.notification
+                check(lateFinish.channelId == finish.channelId)
+                check(lateFinish.visibility == android.app.Notification.VISIBILITY_PRIVATE)
+                check(lateFinish.group != null && lateFinish.groupAlertBehavior == android.app.Notification.GROUP_ALERT_SUMMARY)
+                check(lateFinish.flags and android.app.Notification.FLAG_GROUP_SUMMARY == 0)
+                check(lateFinish.actions.single().title.toString() == "Start short break")
+                check(lateFinish.actions.single().actionIntent != null)
+                timers.refresh()
+                check(timers.state.value.active == null && timers.state.value.focusFinishedAt.size == 1)
+                check(notificationManager.activeNotifications.first { it.id == 701 }.postTime == latePost.postTime)
+                timerNotifications.clearFinished()
+                messages.append("PASS: late timer posts one silent finish notification with a next-session action, even with finish sound enabled\n"); passed++
+
                 val provider = dev.calendarquiet.data.DeviceCalendars(context)
                 val uiCalendars = dev.calendarquiet.data.UiCalendars(provider)
                 val window = dev.calendarquiet.core.CalendarWindow(now, now + 7 * 24 * dev.calendarquiet.core.HOUR, null)
