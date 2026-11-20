@@ -1,6 +1,8 @@
 # Time Left
 
-A small, local Android timer for Pomodoros, calendar events and free time. Built for Android 13+ with Kotlin and Compose Material 3. The app keeps the original `dev.calendarquiet` package so an upgrade retains existing settings; the earlier Calendar Quiet tools remain available.
+A small, local Android timer for Pomodoros, calendar events and free time. Built for Android 13+ with Kotlin and Compose Material 3. The app keeps the original `dev.calendarquiet` package for compatible upgrades. The earlier Calendar Quiet tools remain available.
+
+Developed by [Aeen Karimian](https://github.com/A-K-6). The project is available under the [MIT License](LICENSE). See the [privacy policy](app/src/main/res/raw/privacy_policy.txt) for how Time Left uses calendar and notification access.
 
 ## Timers
 
@@ -51,10 +53,10 @@ Overlapping sound rules use Silent over Vibrate. Notification hiding uses the la
 Requirements: JDK 17, Android SDK platform 36 and Build Tools 35.0.0. Android Studio can install the SDK packages and configure the SDK path. Alternatively set `ANDROID_HOME` or an untracked `local.properties` containing `sdk.dir=/your/android/sdk`.
 
 ```sh
-./gradlew :core:test :app:assembleDebug :app:lintDebug
+./gradlew :core:test :app:assembleDebug :app:lintRelease
 ```
 
-The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`. Release shrinking is enabled; release signing is intentionally left for the owner's signing configuration. The local timer preview is `artifacts/time-left-preview.apk`, an optimized release signed with the development debug key for device testing. It is not a production-signed release.
+Install the debug APK at `app/build/outputs/apk/debug/app-debug.apk` for development. See the [Android release guide](docs/releasing.md) for building the Play bundle and signing APKs for other stores.
 
 v0.6.0 adds local focus progress and rewards without a background ticker or additional permissions. See [progress validation](docs/progress-validation.md) for migration, completion-once and idle-work checks.
 
@@ -122,3 +124,5 @@ On Samsung, inspect Sleeping/Deep sleeping apps if scheduled actions are missed.
 - `app/.../ui/`: Material rule editor, schedule and setup.
 
 Official API references: [Calendar Provider](https://developer.android.com/identity/providers/calendar-provider), [Alarm scheduling](https://developer.android.com/develop/background-work/services/alarms), [Notification snoozing](https://developer.android.com/reference/android/service/notification/NotificationListenerService#snoozeNotification(java.lang.String,%20long)), [Automatic DND rules](https://developer.android.com/reference/android/app/NotificationManager#setAutomaticZenRuleState(java.lang.String,%20android.service.notification.Condition)).
+
+The included [Gradle Wrapper](gradle/wrapper) and its launch scripts are distributed under the Apache License 2.0. A copy of the license is included in the wrapper JAR. AndroidX and Kotlin dependencies are distributed under their respective upstream licenses.

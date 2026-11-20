@@ -24,11 +24,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
+import dev.calendarquiet.R
 import dev.calendarquiet.automation.AutomationStatus
 import dev.calendarquiet.automation.QuietNotificationListener
 import dev.calendarquiet.core.Rule
@@ -47,7 +49,7 @@ private data class InstalledApp(val packageName: String, val label: String)
 private data class Access(val calendar: Boolean, val sound: Boolean, val reminders: Boolean, val snooze: Boolean, val exact: Boolean)
 
 @Composable
-fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit, openTimerRequest: Int = 0) {
+fun QuietScreen(context: Context, revision: Int, onRequestAccess: (String) -> Unit, openTimerRequest: Int = 0) {
     val automation = context.quietApp.automation
     val calendarCache = context.quietApp.uiCalendars
     val status by automation.status.collectAsState()
@@ -69,6 +71,16 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val access = remember(revision, status) { readAccess(context) }
+    var pendingAccess by rememberSaveable { mutableStateOf<String?>(null) }
+    var showingPrivacyPolicy by rememberSaveable { mutableStateOf(false) }
+
+    fun requestAccess(kind: String) {
+        if ((kind == "calendar" && !access.calendar) || (kind == "snooze" && !access.snooze)) {
+            pendingAccess = kind
+        } else {
+            onRequestAccess(kind)
+        }
+    }
 
     LaunchedEffect(revision) {
         lifecycle.withVisibleUi {
@@ -186,7 +198,7 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                     isExisting = rules.any { it.id == current.id })
             }
         } else when (page) {
-            0 -> TimerPage(context, revision, calendarRevision, calendars, Modifier.padding(padding), requestAccess,
+            0 -> TimerPage(context, revision, calendarRevision, calendars, Modifier.padding(padding), ::requestAccess,
                 onChooseCalendars = ::chooseCalendars, onRefreshCalendars = ::refreshCalendars)
             5 -> ProgressPage(context, revision, Modifier.padding(padding)) { page = 0 }
             2 -> RulesPage(rules, enabled, status, access, busy, Modifier.padding(padding),
@@ -212,7 +224,8 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
                 access.sound, access.snooze, access.reminders, calendars, Modifier.padding(padding), onRequestAccess = { requestAccess("calendar") },
                 onEditRule = { editing = it }, onOpenTimer = { page = 0 },
                 onChooseCalendars = ::chooseCalendars, onRefreshCalendars = ::refreshCalendars)
-            else -> SetupPage(access, calendars, calendarLoading, calendarError, Modifier.padding(padding), requestAccess, ::chooseCalendars)
+            else -> SetupPage(access, calendars, calendarLoading, calendarError, Modifier.padding(padding),
+                ::requestAccess, ::chooseCalendars, onPrivacyPolicy = { showingPrivacyPolicy = true })
         }
     }
     if (choosingCalendars) CalendarSourcesDialog(calendars, selectedCalendars, calendarLoading, calendarError, calendarSaving,
@@ -226,6 +239,38 @@ fun QuietScreen(context: Context, revision: Int, requestAccess: (String) -> Unit
             }
         }, onReload = ::refreshCalendars, onSyncSettings = { requestAccess("calendar_sync") },
         onDismiss = { choosingCalendars = false })
+    pendingAccess?.let { kind ->
+        val calendar = kind == "calendar"
+        val dismiss = { pendingAccess = null }
+        AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text(stringResource(if (calendar) R.string.calendar_disclosure_title else R.string.snooze_disclosure_title)) },
+            text = {
+                Text(
+                    stringResource(if (calendar) R.string.calendar_disclosure_body else R.string.snooze_disclosure_body),
+                    Modifier.verticalScroll(rememberScrollState()),
+                )
+            },
+            dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.access_not_now)) } },
+            confirmButton = {
+                TextButton(onClick = { dismiss(); onRequestAccess(kind) }) {
+                    Text(stringResource(R.string.access_continue))
+                }
+            },
+        )
+    }
+    if (showingPrivacyPolicy) {
+        val policy = remember(context) {
+            context.resources.openRawResource(R.raw.privacy_policy).bufferedReader().use { it.readText().trim() }
+        }
+        val dismiss = { showingPrivacyPolicy = false }
+        AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text(stringResource(R.string.privacy_policy_title)) },
+            text = { Text(policy, Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.privacy_policy_close)) } },
+        )
+    }
     error?.let { message -> AlertDialog(onDismissRequest = { error = null }, title = { Text("Could not finish") },
         text = { Text(message) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } }) }
 }
@@ -319,10 +364,11 @@ private fun SchedulePage(status: AutomationStatus, enabled: Boolean, exact: Bool
 
 @Composable
 private fun SetupPage(access: Access, calendars: List<CalendarSource>, calendarLoading: Boolean, calendarError: String?,
-    modifier: Modifier, requestAccess: (String) -> Unit, onChooseCalendars: () -> Unit) {
+    modifier: Modifier, requestAccess: (String) -> Unit, onChooseCalendars: () -> Unit, onPrivacyPolicy: () -> Unit) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Enable what you need", style = MaterialTheme.typography.titleLarge)
         Text("Events come from calendars synced to this phone. Your rules and settings stay on this device.")
+        TextButton(onClick = onPrivacyPolicy) { Text(stringResource(R.string.privacy_policy_title)) }
         AccessCard("Calendar access", "Required to read event titles, descriptions and times.", access.calendar) { requestAccess("calendar") }
         AccessCard("Sound-mode access", "Allows Silent and Vibrate rules. Silent blocks call and notification sounds and vibration; alarms and media are left alone.", access.sound) { requestAccess("sound") }
         AccessCard("Custom reminders", "Allows this app to show your reminder notifications.", access.reminders) { requestAccess("reminders") }

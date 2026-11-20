@@ -1,0 +1,16 @@
+Time Left is developed and maintained by Aeen Karimian.
+
+Calendar access
+If you allow calendar access, Time Left reads calendar and account labels, event titles, descriptions, times, and status from Android’s calendar provider. It uses them to show your calendar, suggest countdowns, and match quiet rules. When quiet rules are enabled, the app checks matching events in the background. Time Left does not edit calendar events or sign in to your calendar account. Your calendar provider manages its own sync.
+
+Notification and app access
+If you enable notification snoozing, Android can deliver other apps’ notifications to Time Left, including when Time Left is closed. Time Left uses the sending app, notification identifier, and type to snooze eligible notifications from the apps you select during active quiet rules. Time Left does not read or save notification message text. The rule editor shows names of apps with launch icons so you can choose which apps to snooze. Depending on your settings, a reminder can show a calendar event title in an Android notification.
+
+Local storage and sharing
+Time Left stores your rules, calendar selections, timer history and labels, focus progress, settings, and the state needed for automation in private app storage. Data is retained for app features until you remove it or clear the app’s storage. Android backups and device transfer are disabled for this app. Time Left has no account, analytics, ads, or server. The app does not send this data to the developer or share it with third parties.
+
+Your controls
+You can turn off quiet rules in the app and revoke calendar or notification access in Android Settings. Clearing Time Left’s storage in Android Settings or uninstalling the app removes its locally saved data.
+
+Privacy questions
+Contact Aeen Karimian through the issue tracker of the public Time Left repository listed at https://github.com/A-K-6. Please leave calendar and notification details out of public reports.

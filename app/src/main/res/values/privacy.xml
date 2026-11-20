@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calendar_disclosure_title">How Time Left uses your calendar</string>
+    <string name="calendar_disclosure_body">Time Left reads calendar names, account labels, event titles, descriptions and times on this device to show your calendar, suggest countdowns and match quiet rules. If you turn on quiet rules, the app checks matching events in the background even when it is closed. Calendar data stays on this device.</string>
+    <string name="snooze_disclosure_title">How Time Left snoozes notifications</string>
+    <string name="snooze_disclosure_body">Android notification access lets Time Left see notifications from other apps. Time Left checks the sending app and notification type in the background so it can snooze eligible notifications from apps you select during quiet rules. Time Left does not read notification message text or send notification data off your device.</string>
+    <string name="access_not_now">Not now</string>
+    <string name="access_continue">Continue</string>
+    <string name="privacy_policy_title">Privacy policy</string>
+    <string name="privacy_policy_close">Close</string>
+</resources>
