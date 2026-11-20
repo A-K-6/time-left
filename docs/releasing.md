@@ -13,7 +13,7 @@ Use JDK 17, Android SDK platform 36 and Build Tools 35.0.0. The Gradle Wrapper p
 | Unsigned Android App Bundle for Google Play | `app/build/outputs/bundle/release/app-release.aab` |
 | Unsigned APK for direct distribution or stores that accept APKs | `app/build/outputs/apk/release/app-release-unsigned.apk` |
 
-This candidate uses `dev.calendarquiet` and version `0.6.2` (code `11`). It targets API 36 and runs on Android 13 and later. Check whether the previously distributed package ID is eligible for your store account before committing to that ID and signing identity. Use a higher version code for subsequent releases. [Android package verification](https://developer.android.com/developer-verification/guides/pdf-guides/pdc-guide.pdf) · [Google Play target API requirements](https://support.google.com/googleplay/android-developer/answer/11926878)
+This candidate uses `dev.calendarquiet` and version `0.6.3` (code `12`). It targets API 36 and runs on Android 13 and later. Check whether the previously distributed package ID is eligible for your store account before committing to that ID and signing identity. Use a higher version code for subsequent releases. [Android package verification](https://developer.android.com/developer-verification/guides/pdf-guides/pdc-guide.pdf) · [Google Play target API requirements](https://support.google.com/googleplay/android-developer/answer/11926878)
 
 ## Sign the store builds
 

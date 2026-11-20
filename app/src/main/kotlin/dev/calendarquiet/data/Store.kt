@@ -8,6 +8,11 @@ import org.json.JSONObject
 /** Small local configuration; notification contents are never stored. */
 class Store(context: Context) {
     val prefs = context.getSharedPreferences("calendar_quiet", Context.MODE_PRIVATE)
+
+    init {
+        if (prefs.contains("snooze_windows")) prefs.edit().remove("snooze_windows").apply()
+    }
+
     var enabled: Boolean
         get() = prefs.getBoolean("enabled", false)
         set(value) { prefs.edit().putBoolean("enabled", value).commit() }
@@ -52,8 +57,6 @@ class Store(context: Context) {
 
     fun delivered(now: Long): Map<String, Long> = longMap("delivered").filterValues { it > now }
     fun markDelivered(key: String, end: Long, now: Long) = putLongMap("delivered", delivered(now) + (key to end))
-    fun snoozeWindows(): Map<String, Long> = longMap("snooze_windows")
-    fun setSnoozeWindows(windows: Map<String, Long>) = putLongMap("snooze_windows", windows)
 
     private fun longMap(key: String): Map<String, Long> {
         val json = JSONObject(prefs.getString(key, "{}") ?: "{}")

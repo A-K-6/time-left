@@ -5,24 +5,45 @@ import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import dev.calendarquiet.data.Store
 import dev.calendarquiet.quietApp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class QuietNotificationListener : NotificationListenerService() {
-    private lateinit var store: Store
     private val handler = Handler(Looper.getMainLooper())
-    override fun onCreate() { super.onCreate(); store = Store(this) }
+    private var ready = false
+    private var refreshOnConnect: Job? = null
+
     override fun onListenerConnected() {
+        ready = false
+        refreshOnConnect?.cancel()
         connected = this
-        quietApp.scope.launch { quietApp.automation.reconcile() }
+        refreshOnConnect = quietApp.scope.launch(Dispatchers.Main.immediate) {
+            withContext(Dispatchers.IO) { quietApp.automation.reconcile() }
+            ready = true
+            snoozeCurrent()
+        }
     }
-    override fun onListenerDisconnected() { if (connected === this) connected = null }
-    override fun onDestroy() { if (connected === this) connected = null; super.onDestroy() }
+
+    override fun onListenerDisconnected() = disconnect()
+
+    override fun onDestroy() {
+        disconnect()
+        super.onDestroy()
+    }
+
+    private fun disconnect() {
+        ready = false
+        refreshOnConnect?.cancel()
+        if (connected === this) connected = null
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) { snoozeIfSelected(sbn) }
 
     private fun snoozeIfSelected(sbn: StatusBarNotification) {
-        if (!store.enabled || sbn.packageName == packageName) return
+        if (!ready || sbn.packageName == packageName) return
         val flags = sbn.notification.flags
         // Ongoing services, calls, alarms and media controls must remain visible.
         if (sbn.isOngoing || flags and Notification.FLAG_FOREGROUND_SERVICE != 0 ||
@@ -30,13 +51,17 @@ class QuietNotificationListener : NotificationListenerService() {
             flags and Notification.FLAG_GROUP_SUMMARY != 0 ||
             sbn.notification.category in setOf(Notification.CATEGORY_CALL, Notification.CATEGORY_ALARM,
                 Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_SYSTEM)) return
-        val until = store.snoozeWindows()[sbn.packageName] ?: return
+        val until = quietApp.automation.snoozeDeadline(sbn.packageName) ?: return
         val duration = until - System.currentTimeMillis()
         if (duration > 0) runCatching { snoozeNotification(sbn.key, duration) }
     }
 
     private fun snoozeCurrent() {
-        handler.post { runCatching { activeNotifications?.forEach(::snoozeIfSelected) } }
+        handler.post {
+            if (ready && quietApp.automation.canRunRules) {
+                runCatching { activeNotifications?.forEach(::snoozeIfSelected) }
+            }
+        }
     }
     companion object {
         @Volatile private var connected: QuietNotificationListener? = null

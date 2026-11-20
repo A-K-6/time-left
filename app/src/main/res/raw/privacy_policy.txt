@@ -13,7 +13,7 @@ Local storage and sharing
 Time Left stores your rules, calendar selections, timer history and labels, focus progress, settings, and the state needed for automation in private app storage. Recent completion records are periodically pruned. Focus totals, preferences, and rules remain until you remove them or clear the app’s storage. Android backups and device transfer are disabled for this app. Time Left has no account, analytics, ads, or server and does not send this data off your device.
 
 Your controls
-You can turn off quiet rules in the app and revoke calendar or notification access in Android Settings. Clearing Time Left’s storage in Android Settings or uninstalling the app removes its locally saved data.
+You can turn off quiet rules in the app and revoke calendar or notification access in Android Settings. Revoking calendar access stops new snoozes. Already snoozed notifications keep their scheduled return time. Clearing Time Left’s storage in Android Settings or uninstalling the app removes its locally saved data.
 
 Privacy questions
 Use the support contact on the store listing where you obtained Time Left to reach Aeen Karimian with privacy questions. Please leave calendar and notification details out of public reports.

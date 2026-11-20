@@ -12,8 +12,8 @@ android {
             "dev.calendarquiet.PerformanceRunner" else "dev.calendarquiet.TimerSmokeRunner"
         minSdk = 33
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.6.2"
+        versionCode = 12
+        versionName = "0.6.3"
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -33,6 +33,7 @@ dependencies {
     implementation(project(":core"))
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.activity:activity-compose:1.11.0")
+    implementation("androidx.core:core:1.15.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")

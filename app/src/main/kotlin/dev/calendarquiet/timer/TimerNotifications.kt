@@ -14,6 +14,7 @@ import android.media.RingtoneManager
 import android.provider.Settings
 import android.view.View
 import android.widget.RemoteViews
+import androidx.core.app.NotificationCompat
 import dev.calendarquiet.core.countdownChronometerBase
 import dev.calendarquiet.core.TimerKind
 import dev.calendarquiet.MainActivity
@@ -135,28 +136,29 @@ class TimerNotifications(private val context: Context) {
     }
 
     fun finished(timer: Countdown, state: TimerState) {
-        if (playOnFinish) {
-            val next = state.nextSessionKind
-            val label = when (next) {
-                TimerKind.LONG_BREAK -> "Start long break"
-                TimerKind.BREAK -> "Start short break"
-                else -> "Start focus"
-            }
-            postAlert(timer.kind, "${timer.title} finished", "$label · ${state.minutesFor(next)} min", 701, 60_000,
-                label, TimerReceiver.action(context, TimerReceiver.START_NEXT, state.revision))
+        val next = state.nextSessionKind
+        val label = when (next) {
+            TimerKind.LONG_BREAK -> "Start long break"
+            TimerKind.BREAK -> "Start short break"
+            else -> "Start focus"
         }
+        postAlert(timer.kind, "${timer.title} finished", "$label · ${state.minutesFor(next)} min", 701, 60_000,
+            label, TimerReceiver.action(context, TimerReceiver.START_NEXT, state.revision), silent = !playOnFinish)
     }
 
     fun test(kind: TimerKind): Boolean = postAlert(kind, "${channelName(kind)} test", "Your timer cue plays once.", 703, 10_000)
 
-    private fun postAlert(kind: TimerKind, title: String, text: String, id: Int, timeout: Long, actionLabel: String? = null, action: PendingIntent? = null): Boolean {
+    private fun postAlert(
+        kind: TimerKind, title: String, text: String, id: Int, timeout: Long,
+        actionLabel: String? = null, action: PendingIntent? = null, silent: Boolean = false,
+    ): Boolean {
         if (!allowed()) return false
         ensureSoundChannels()
-        val builder = Notification.Builder(context, channelId(kind)).setSmallIcon(R.drawable.ic_timer)
+        val builder = NotificationCompat.Builder(context, channelId(kind)).setSmallIcon(R.drawable.ic_timer)
             .setContentTitle(title).setContentText(text).setContentIntent(open()).setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_ALARM).setVisibility(Notification.VISIBILITY_PRIVATE)
-            .setTimeoutAfter(timeout)
-        if (action != null) builder.addAction(Notification.Action.Builder(null, actionLabel, action).build())
+            .setCategory(NotificationCompat.CATEGORY_ALARM).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setTimeoutAfter(timeout).setSilent(silent)
+        if (action != null) builder.addAction(0, actionLabel, action)
         return try { manager.notify(id, builder.build()); true } catch (_: SecurityException) { false }
     }
 

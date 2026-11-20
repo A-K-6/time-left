@@ -211,6 +211,25 @@ class TimerSmokeRunner : Instrumentation() {
                 check(TimerStore(context).read().progress!!.summary(java.time.LocalDate.now()).xp == 10L)
                 messages.append("PASS: progress persists once; goal edits preserve earned XP and existing next-session actions\n"); passed++
                 timers.clear()
+
+                val timerNotifications = dev.calendarquiet.timer.TimerNotifications(context)
+                timerNotifications.clearFinished()
+                timerNotifications.setPlayOnFinish(false)
+                val silentState = TimerState(active = due)
+                TimerStore(context).write(silentState)
+                timers = TimerCoordinator(context)
+                timers.refresh()
+                repeat(30) { if (notificationManager.activeNotifications.none { it.id == 701 }) delay(50) }
+                val silentFinish = notificationManager.activeNotifications.first { it.id == 701 }.notification
+                check(silentFinish.channelId == finish.channelId)
+                check(silentFinish.visibility == android.app.Notification.VISIBILITY_PRIVATE)
+                check(silentFinish.group != null && silentFinish.groupAlertBehavior == android.app.Notification.GROUP_ALERT_SUMMARY)
+                check(silentFinish.flags and android.app.Notification.FLAG_GROUP_SUMMARY == 0)
+                check(silentFinish.actions.single().title.toString() == "Start short break")
+                check(silentFinish.actions.single().actionIntent != null)
+                timerNotifications.clearFinished()
+                messages.append("PASS: disabling finish sound keeps the notification and action on the same channel, with alerts suppressed\n"); passed++
+
                 val provider = dev.calendarquiet.data.DeviceCalendars(context)
                 val uiCalendars = dev.calendarquiet.data.UiCalendars(provider)
                 val window = dev.calendarquiet.core.CalendarWindow(now, now + 7 * 24 * dev.calendarquiet.core.HOUR, null)

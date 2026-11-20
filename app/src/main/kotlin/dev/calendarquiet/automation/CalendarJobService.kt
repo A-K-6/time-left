@@ -15,7 +15,7 @@ class CalendarJobService : JobService() {
             quietApp.automation.reconcile()
             withContext(Dispatchers.Main) {
                 running.remove(params.jobId)
-                if (params.jobId == Scheduler.CALENDAR_JOB && quietApp.automation.store.enabled) {
+                if (params.jobId == Scheduler.CALENDAR_JOB && quietApp.automation.canRunRules) {
                     // Replace before finishing so changes during execution are carried forward.
                     Scheduler(this@CalendarJobService).armCalendarChanges(replaceRunning = true)
                 } else jobFinished(params, false)
@@ -25,7 +25,7 @@ class CalendarJobService : JobService() {
     }
     override fun onStopJob(params: JobParameters): Boolean {
         running.remove(params.jobId)?.cancel()
-        return quietApp.automation.store.enabled
+        return quietApp.automation.canRunRules
     }
     override fun onDestroy() {
         running.values.forEach { it.cancel() }
